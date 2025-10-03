@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  tool-installer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python main.py --config /app/config/config.json
+    
+  # Optional: Local development with hot reload
+  tool-installer-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python main.py --mock-sheets --dry-run
+    profiles:
+      - dev

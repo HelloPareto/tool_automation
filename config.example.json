@@ -1,0 +1,33 @@
+{
+  "google_sheets": {
+    "credentials_path": "path/to/your/google-credentials.json",
+    "spreadsheet_id": "your-google-sheet-id-here",
+    "sheet_name": "Tools"
+  },
+  "claude": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 4096,
+    "temperature": 0.2,
+    "max_concurrent_jobs": 5,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 2.0
+  },
+  "docker": {
+    "base_image": "ubuntu:22.04",
+    "build_timeout": 300,
+    "run_timeout": 600,
+    "cleanup_containers": true
+  },
+  "artifacts": {
+    "base_path": "artifacts",
+    "keep_failed_attempts": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/tool_installer.log",
+    "max_file_size_mb": 10,
+    "backup_count": 5
+  },
+  "dry_run": false,
+  "parallel_jobs": 5
+}

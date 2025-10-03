@@ -1,0 +1,54 @@
+# Environment variables
+.env
+env.example
+
+# Google credentials
+*credentials*.json
+service-account*.json
+
+
+/creds
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Artifacts and logs
+artifacts/
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.coverage
+
+# Configuration
+config.json
+!config.example.json
+
+# Docker
+.dockerignore
+*.tar
+
+# Temporary files
+*.tmp
+*.bak
+*~

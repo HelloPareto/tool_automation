@@ -1,0 +1,50 @@
+# Acceptance Checklist for Tool Installation Scripts
+acceptance_criteria:
+  - id: idempotent
+    description: "Script is idempotent (re-run = no changes, still exits 0)"
+    required: true
+    
+  - id: version_pinned
+    description: "Versions pinned; downloads verified (checksum/GPG)"
+    required: true
+    
+  - id: non_interactive
+    description: "Non-interactive install; no prompts"
+    required: true
+    
+  - id: approved_repos
+    description: "Uses approved repos and keyring locations"
+    required: true
+    
+  - id: cache_cleaned
+    description: "Cleans caches; reasonable image size impact"
+    required: true
+    
+  - id: validation_works
+    description: "validate_cmd returns expected version and exit 0"
+    required: true
+    
+  - id: shellcheck_passes
+    description: "Shellcheck passes (-x); bash -n passes"
+    required: true
+    
+  - id: no_secrets
+    description: "No secrets baked into script"
+    required: true
+    
+  - id: clear_logging
+    description: "Clear logging; graceful failure with actionable message"
+    required: true
+
+validation_commands:
+  shellcheck:
+    command: "shellcheck -x"
+    description: "Static analysis of shell script"
+    
+  bash_syntax:
+    command: "bash -n"
+    description: "Bash syntax validation"
+    
+  docker_build:
+    command: "docker build --no-cache"
+    description: "Test script in Docker container"
