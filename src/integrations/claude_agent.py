@@ -167,13 +167,18 @@ class ClaudeInstallationAgent:
         """Get the system prompt for Claude."""
         return f"""You are an expert DevOps engineer responsible for autonomously installing tools.
 
+Many tools come from GitHub repositories. When a GitHub URL is provided, I've already analyzed the repository
+to detect possible installation methods (pip, npm, binary releases, Docker, etc.). Use this information to
+choose the most appropriate installation method.
+
 Your task is to use your built-in tools to:
 1. Generate an idempotent installation script following the provided standards
-2. Save the script using the Write tool to artifacts/tools/<tool_name>/tool_setup.sh
-3. Validate the script with shellcheck using the Bash tool
-4. Check bash syntax using Bash tool with bash -n
-5. {"Skip Docker testing (dry run mode)" if dry_run else "Test the installation in a Docker container using Bash tool"}
-6. Report results clearly
+2. Choose the best installation method based on the tool type and available options
+3. Save the script using the Write tool to artifacts/tools/<tool_name>/tool_setup.sh
+4. Validate the script with shellcheck using the Bash tool
+5. Check bash syntax using Bash tool with bash -n
+6. {"Skip Docker testing (dry run mode)" if dry_run else "Test the installation in a Docker container using Bash tool"}
+7. Report results clearly
 
 You have access to these built-in tools:
 - Write: Create files (use for saving scripts)
@@ -193,6 +198,21 @@ Important:
                      base_dockerfile: str, acceptance_checklist: str,
                      dry_run: bool) -> str:
         """Build the task prompt for Claude."""
+        # Build GitHub-specific information if available
+        github_info = ""
+        if tool_spec.github_url:
+            github_info = f"""
+GitHub Repository Analysis:
+- GitHub URL: {tool_spec.github_url}
+- Detected Installation Methods: {', '.join(tool_spec.detected_install_methods) if tool_spec.detected_install_methods else 'None detected'}
+- Package Name: {tool_spec.package_name or 'Not detected'}
+- Docker Image: {tool_spec.docker_image or 'Not available'}
+- Binary Pattern: {tool_spec.binary_pattern or 'No binary releases'}
+
+Installation Documentation Found:
+{tool_spec.installation_docs or 'No specific installation docs found'}
+"""
+        
         return f"""Install {tool_spec.name} version {tool_spec.version} following these specifications:
 
 Tool Details:
@@ -202,6 +222,7 @@ Tool Details:
 - Package Manager: {tool_spec.package_manager or 'auto-detect'}
 {f"- Repository URL: {tool_spec.repository_url}" if tool_spec.repository_url else ""}
 {f"- GPG Key URL: {tool_spec.gpg_key_url}" if tool_spec.gpg_key_url else ""}
+{github_info}
 
 Installation Standards:
 {install_standards}
@@ -217,23 +238,27 @@ STEP-BY-STEP INSTRUCTIONS:
 1. First, ensure the directory exists:
    - Use Bash: mkdir -p {self.artifacts_base_path}/tools/{tool_spec.name}
 
-2. Generate a complete installation script that:
+2. Analyze the tool and choose the best installation method:
+   {self._get_installation_guidance(tool_spec)}
+
+3. Generate a complete installation script that:
    - Is idempotent (can be run multiple times safely)
    - Pins the exact version {tool_spec.version}
    - Includes a validate() function using: {tool_spec.validate_cmd}
    - Follows all the installation standards
    - Uses set -euo pipefail for safety
+   - Uses the most appropriate installation method based on the tool type
 
-3. Save the script:
+4. Save the script:
    - Use Write tool to save to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Verify it was saved correctly with Read tool
 
-4. Validate the script:
+5. Validate the script:
    - Use Bash: shellcheck -x {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Use Bash: bash -n {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Report any issues found
 
-5. {"Skip Docker testing due to dry run mode" if dry_run else f'''Test in Docker:
+6. {"Skip Docker testing due to dry run mode" if dry_run else f'''Test in Docker:
    - Create a test directory with Bash: mkdir -p /tmp/docker_test_{tool_spec.name}_{tool_spec.version}
    - Use Write to create Dockerfile at: /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/Dockerfile
      Content should be based on the base Dockerfile and copy/run your script
@@ -242,10 +267,11 @@ STEP-BY-STEP INSTRUCTIONS:
    - Use Bash: docker run --rm test_{tool_spec.name}_{tool_spec.version} {tool_spec.validate_cmd}
    - Clean up with Bash: docker rmi test_{tool_spec.name}_{tool_spec.version} && rm -rf /tmp/docker_test_{tool_spec.name}_{tool_spec.version}'''}
 
-6. Summary:
+7. Summary:
    - Report if all steps completed successfully
    - List any errors encountered
    - Confirm the script is saved at the correct location
+   - Report which installation method was used
 
 Remember:
 - Use Bash tool for ALL command execution
@@ -253,3 +279,63 @@ Remember:
 - Use Read tool to verify files
 - Be explicit about each step and its result
 - The script MUST be saved to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh"""
+    
+    def _get_installation_guidance(self, tool_spec: ToolSpec) -> str:
+        """Get specific installation guidance based on detected methods."""
+        if not tool_spec.detected_install_methods:
+            return """
+   - No specific installation method detected
+   - Check if there are binary releases available
+   - Look for installation documentation in README
+   - Consider building from source if necessary"""
+        
+        guidance = []
+        
+        # Python packages
+        if "pip" in tool_spec.detected_install_methods:
+            pkg = tool_spec.package_name or tool_spec.name
+            guidance.append(f"""
+   - Python package detected: Use pip install {pkg}
+   - Check PyPI for available versions
+   - Consider using virtual environment""")
+        
+        # Node.js packages
+        if "npm" in tool_spec.detected_install_methods:
+            pkg = tool_spec.package_name or tool_spec.name
+            guidance.append(f"""
+   - Node.js package detected: Use npm install -g {pkg}
+   - Check npm registry for versions""")
+        
+        # Go packages
+        if "go_install" in tool_spec.detected_install_methods:
+            pkg = tool_spec.package_name or f"github.com/{tool_spec.github_url.split('/')[-2]}/{tool_spec.github_url.split('/')[-1]}"
+            guidance.append(f"""
+   - Go module detected: Use go install {pkg}@{tool_spec.version}
+   - Ensure Go is available in the environment""")
+        
+        # Binary releases
+        if "binary_release" in tool_spec.detected_install_methods:
+            guidance.append(f"""
+   - Binary releases available on GitHub
+   - Download appropriate binary for Linux amd64
+   - Pattern: {tool_spec.binary_pattern or 'Check releases page'}""")
+        
+        # Docker
+        if "docker" in tool_spec.detected_install_methods:
+            img = tool_spec.docker_image or f"{tool_spec.name}:latest"
+            guidance.append(f"""
+   - Docker image available: {img}
+   - Consider if Docker installation is appropriate
+   - May need wrapper script for CLI usage""")
+        
+        # Docker Compose
+        if "docker_compose" in tool_spec.detected_install_methods:
+            guidance.append("""
+   - Docker Compose setup available
+   - This is typically for full applications, not CLI tools
+   - Consider extracting just the necessary components""")
+        
+        return "\n".join(guidance) if guidance else """
+   - Use the detected methods as guidance
+   - Choose the most appropriate for a system-wide installation
+   - Prefer binary releases or package managers over building from source"""

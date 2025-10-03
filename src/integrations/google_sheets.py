@@ -17,6 +17,7 @@ except ImportError:
     logging.warning("Google API libraries not available. Install with: pip install google-api-python-client google-auth")
 
 from ..models.tool import Tool, ToolSpec, ToolStatus
+from ..analyzers.github_analyzer import GitHubAnalyzer
 
 
 class GoogleSheetsClient:
@@ -51,6 +52,10 @@ class GoogleSheetsClient:
         Read tool list from Google Sheets.
         
         Expected columns:
+        - github_url: GitHub repository URL (required)
+        - status: Current status (updated by this system)
+        
+        OR legacy columns:
         - Name: Tool name
         - Version: Version to install
         - ValidateCommand: Command to validate installation
@@ -80,46 +85,124 @@ class GoogleSheetsClient:
             headers = [h.lower().replace(' ', '_') for h in values[0]]
             header_map = {h: i for i, h in enumerate(headers)}
             
-            # Required columns
-            required = ['name', 'version', 'validatecommand']
-            missing = [r for r in required if r not in header_map]
-            if missing:
-                raise ValueError(f"Missing required columns: {missing}")
+            # Check if this is GitHub URL format or legacy format
+            is_github_format = 'github_url' in header_map
             
-            # Parse tools
-            tools = []
-            for row_idx, row in enumerate(values[1:], start=2):
-                if not row or not row[header_map['name']]:
-                    continue
+            if is_github_format:
+                # New GitHub URL format
+                if 'github_url' not in header_map:
+                    raise ValueError("Missing required column: github_url")
                 
-                # Extract tool data
-                tool_data = {}
-                for field, idx in header_map.items():
-                    if idx < len(row):
-                        tool_data[field] = row[idx]
+                # Initialize GitHub analyzer
+                analyzer = GitHubAnalyzer()
                 
-                # Create ToolSpec
-                spec = ToolSpec(
-                    name=tool_data['name'],
-                    version=tool_data['version'],
-                    validate_cmd=tool_data.get('validatecommand', ''),
-                    description=tool_data.get('description'),
-                    package_manager=tool_data.get('packagemanager'),
-                    repository_url=tool_data.get('repositoryurl'),
-                    gpg_key_url=tool_data.get('gpgkeyurl'),
-                    dependencies=self._parse_list(tool_data.get('dependencies')),
-                    post_install_steps=self._parse_list(tool_data.get('postinstallsteps'))
-                )
+                # Parse tools from GitHub URLs
+                tools = []
+                for row_idx, row in enumerate(values[1:], start=2):
+                    if not row or len(row) == 0:
+                        continue
+                    
+                    # Get GitHub URL (column A = index 0)
+                    github_url = row[header_map['github_url']] if header_map['github_url'] < len(row) else None
+                    if not github_url:
+                        continue
+                    
+                    # Get status if available
+                    status_str = row[header_map['status']] if 'status' in header_map and header_map['status'] < len(row) else 'pending'
+                    
+                    try:
+                        # Analyze the repository
+                        self.logger.info(f"Analyzing GitHub repository: {github_url}")
+                        analysis = analyzer.analyze_repository(github_url)
+                        
+                        # Create tool spec based on analysis
+                        spec = ToolSpec(
+                            name=analysis.repo_name,
+                            version=analysis.latest_version or "latest",
+                            validate_cmd=analysis.validation_command or f"{analysis.repo_name} --version",
+                            description=analysis.description or f"Tool from {github_url}",
+                            github_url=github_url,
+                            detected_install_methods=[method.value for method in analysis.install_methods],
+                            package_name=analysis.package_name,
+                            docker_image=analysis.docker_image,
+                            binary_pattern=analysis.binary_pattern,
+                            installation_docs=analysis.installation_docs
+                        )
+                        
+                        # Determine primary package manager
+                        if analysis.install_methods:
+                            primary_method = analysis.install_methods[0]
+                            spec.package_manager = primary_method.value
+                        else:
+                            spec.package_manager = "unknown"
+                        
+                        tool = Tool(
+                            id=f"{analysis.repo_name}-{spec.version}",
+                            spec=spec,
+                            row_number=row_idx,
+                            status=self._parse_status(status_str)
+                        )
+                        
+                        tools.append(tool)
+                        
+                    except Exception as e:
+                        self.logger.error(f"Failed to analyze {github_url}: {e}")
+                        # Create a basic tool entry
+                        repo_name = github_url.split('/')[-1].replace('.git', '')
+                        tool = Tool(
+                            id=f"{repo_name}-unknown",
+                            spec=ToolSpec(
+                                name=repo_name,
+                                version="latest",
+                                validate_cmd=f"{repo_name} --version",
+                                description=f"Tool from {github_url}",
+                                github_url=github_url
+                            ),
+                            row_number=row_idx,
+                            status=self._parse_status(status_str)
+                        )
+                        tools.append(tool)
+            else:
+                # Legacy format
+                required = ['name', 'version', 'validatecommand']
+                missing = [r for r in required if r not in header_map]
+                if missing:
+                    raise ValueError(f"Missing required columns: {missing}")
                 
-                # Create Tool
-                tool = Tool(
-                    id=f"{spec.name}-{spec.version}",
-                    spec=spec,
-                    row_number=row_idx,
-                    status=self._parse_status(tool_data.get('status', 'pending'))
-                )
-                
-                tools.append(tool)
+                # Parse tools
+                tools = []
+                for row_idx, row in enumerate(values[1:], start=2):
+                    if not row or not row[header_map['name']]:
+                        continue
+                    
+                    # Extract tool data
+                    tool_data = {}
+                    for field, idx in header_map.items():
+                        if idx < len(row):
+                            tool_data[field] = row[idx]
+                    
+                    # Create ToolSpec
+                    spec = ToolSpec(
+                        name=tool_data['name'],
+                        version=tool_data['version'],
+                        validate_cmd=tool_data.get('validatecommand', ''),
+                        description=tool_data.get('description'),
+                        package_manager=tool_data.get('packagemanager'),
+                        repository_url=tool_data.get('repositoryurl'),
+                        gpg_key_url=tool_data.get('gpgkeyurl'),
+                        dependencies=self._parse_list(tool_data.get('dependencies')),
+                        post_install_steps=self._parse_list(tool_data.get('postinstallsteps'))
+                    )
+                    
+                    # Create Tool
+                    tool = Tool(
+                        id=f"{spec.name}-{spec.version}",
+                        spec=spec,
+                        row_number=row_idx,
+                        status=self._parse_status(tool_data.get('status', 'pending'))
+                    )
+                    
+                    tools.append(tool)
             
             self.logger.info(f"Read {len(tools)} tools from Google Sheets")
             return tools
@@ -219,42 +302,76 @@ class MockGoogleSheetsClient:
     
     def read_tools(self) -> List[Tool]:
         """Return sample tools for testing."""
-        sample_tools = [
-            Tool(
-                id="terraform-1.6.0",
-                spec=ToolSpec(
-                    name="terraform",
-                    version="1.6.0",
-                    validate_cmd="terraform version",
-                    description="Infrastructure as Code tool",
-                    package_manager="direct"
-                ),
-                row_number=2
-            ),
-            Tool(
-                id="kubectl-1.28.0",
-                spec=ToolSpec(
-                    name="kubectl",
-                    version="1.28.0", 
-                    validate_cmd="kubectl version --client",
-                    description="Kubernetes command-line tool",
-                    package_manager="direct"
-                ),
-                row_number=3
-            ),
-            Tool(
-                id="helm-3.13.0",
-                spec=ToolSpec(
-                    name="helm",
-                    version="3.13.0",
-                    validate_cmd="helm version",
-                    description="Kubernetes package manager",
-                    package_manager="direct"
-                ),
-                row_number=4
-            )
+        # Sample GitHub URLs from the user's spreadsheet
+        github_urls = [
+            "https://github.com/airbytehq/airbyte",
+            # "https://github.com/apache/airflow",
+            # "https://github.com/dbt-labs/dbt-core",
+            # "https://github.com/duckdb/duckdb",
+            "https://github.com/pandas-dev/pandas",
+            # Additional samples for testing different types
+            # "https://github.com/Nixiris/statsforecast",
+            "https://github.com/sktime/sktime",
+            # "https://github.com/google/or-tools",
         ]
-        return sample_tools
+        
+        analyzer = GitHubAnalyzer()
+        tools = []
+        
+        for idx, github_url in enumerate(github_urls, start=2):
+            try:
+                # Analyze the repository
+                analysis = analyzer.analyze_repository(github_url)
+                
+                # Create tool spec based on analysis
+                spec = ToolSpec(
+                    name=analysis.repo_name,
+                    version=analysis.latest_version or "latest",
+                    validate_cmd=analysis.validation_command or f"{analysis.repo_name} --version",
+                    description=analysis.description or f"Tool from {github_url}",
+                    github_url=github_url,
+                    detected_install_methods=[method.value for method in analysis.install_methods],
+                    package_name=analysis.package_name,
+                    docker_image=analysis.docker_image,
+                    binary_pattern=analysis.binary_pattern,
+                    installation_docs=analysis.installation_docs
+                )
+                
+                # Determine primary package manager
+                if analysis.install_methods:
+                    primary_method = analysis.install_methods[0]
+                    spec.package_manager = primary_method.value
+                else:
+                    spec.package_manager = "unknown"
+                
+                tool = Tool(
+                    id=f"{analysis.repo_name}-{spec.version}",
+                    spec=spec,
+                    row_number=idx,
+                    status=ToolStatus.PENDING
+                )
+                
+                tools.append(tool)
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to analyze {github_url}: {e}")
+                # Create a basic tool entry
+                repo_name = github_url.split('/')[-1]
+                tool = Tool(
+                    id=f"{repo_name}-unknown",
+                    spec=ToolSpec(
+                        name=repo_name,
+                        version="latest",
+                        validate_cmd=f"{repo_name} --version",
+                        description=f"Tool from {github_url}",
+                        github_url=github_url
+                    ),
+                    row_number=idx,
+                    status=ToolStatus.PENDING
+                )
+                tools.append(tool)
+        
+        return tools
     
     def update_tool_status(self, tool: Tool, status: ToolStatus, 
                           message: Optional[str] = None,

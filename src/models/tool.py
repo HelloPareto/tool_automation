@@ -32,6 +32,14 @@ class ToolSpec(BaseModel):
     dependencies: Optional[list[str]] = Field(default_factory=list, description="Tool dependencies")
     post_install_steps: Optional[list[str]] = Field(default_factory=list, description="Post-installation steps")
     
+    # GitHub-specific fields
+    github_url: Optional[str] = Field(None, description="GitHub repository URL")
+    detected_install_methods: Optional[list[str]] = Field(default_factory=list, description="Detected installation methods")
+    package_name: Optional[str] = Field(None, description="Package name for installation")
+    docker_image: Optional[str] = Field(None, description="Docker image name if available")
+    binary_pattern: Optional[str] = Field(None, description="Binary release pattern")
+    installation_docs: Optional[str] = Field(None, description="Extracted installation documentation")
+    
     class Config:
         json_schema_extra = {
             "example": {

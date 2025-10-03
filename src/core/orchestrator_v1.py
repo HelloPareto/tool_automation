@@ -294,7 +294,7 @@ class ToolInstallationOrchestrator:
                 "id": tool.id
             },
             "generation": {
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-5-20250929",
                 "timestamp": datetime.utcnow().isoformat(),
                 "confidence": claude_response.self_review.overall_confidence
             },

@@ -23,7 +23,7 @@ dist/
 build/
 
 # Artifacts and logs
-artifacts/
+
 logs/
 *.log
 

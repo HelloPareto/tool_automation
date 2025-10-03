@@ -2,6 +2,16 @@
 
 A production-ready system for automating tool installation across multiple environments using Claude AI as an autonomous agent that handles the complete installation lifecycle.
 
+## 🚀 NEW: GitHub Repository Support
+
+The system now supports automatic installation from any GitHub repository URL! Simply provide a GitHub URL like `https://github.com/pandas-dev/pandas` and the system will:
+- Analyze the repository to detect installation methods
+- Choose the best installation approach (pip, npm, binary, Docker, etc.)
+- Generate a production-ready installation script
+- Validate the installation
+
+No manual configuration needed - just provide the GitHub URL!
+
 ## 🚀 Overview
 
 This system automates tool installation across multiple environments:
@@ -50,6 +60,7 @@ Google Sheet → Orchestrator → Claude (script generation) → Orchestrator (v
 - Google Cloud service account (for Sheets access)
 - Anthropic API key
 - `shellcheck` installed (optional but recommended)
+- GitHub Personal Access Token (optional but recommended for higher rate limits)
 
 ## 🔧 Installation
 
@@ -86,6 +97,11 @@ brew install shellcheck
 Create a `.env` file:
 ```bash
 ANTHROPIC_API_KEY=your_api_key_here
+
+# Optional but recommended: GitHub token for higher API rate limits
+# Without token: 60 requests/hour | With token: 5,000 requests/hour
+# Create at: https://github.com/settings/tokens (scope: public_repo)
+GITHUB_TOKEN=ghp_your_github_token_here
 ```
 
 ### 2. Google Sheets Setup
@@ -97,7 +113,21 @@ ANTHROPIC_API_KEY=your_api_key_here
 
 ### 3. Google Sheets Format
 
-Your sheet should have these columns:
+You can use either format:
+
+#### Option A: GitHub Repository Format (Recommended) 🆕
+Simply provide GitHub URLs and let the system figure out the rest:
+- **github_url**: GitHub repository URL (e.g., `https://github.com/pandas-dev/pandas`)
+- **status**: Current status (auto-updated by system)
+
+The system will automatically:
+- Analyze the repository
+- Detect installation methods (pip, npm, binary, Docker, etc.)
+- Find the latest version
+- Generate appropriate installation scripts
+
+#### Option B: Legacy Manual Format
+For specific tools with known installation methods:
 - **Name**: Tool name (required)
 - **Version**: Version to install (required)
 - **ValidateCommand**: Command to validate installation (required)
@@ -120,7 +150,7 @@ Create `config.json`:
     "sheet_name": "Tools"
   },
   "claude": {
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-sonnet-4-5-20250929",
     "max_tokens": 4096,
     "temperature": 0.2,
     "max_concurrent_jobs": 5
@@ -195,6 +225,8 @@ tool_code_automation/
 │   │   ├── google_sheets.py # Google Sheets client
 │   │   ├── claude_client.py # Claude AI client (V1)
 │   │   └── claude_agent.py # Claude agent with built-in tools
+│   ├── analyzers/          # Repository analyzers 🆕
+│   │   └── github_analyzer.py # GitHub repository analyzer
 │   ├── models/             # Pydantic data models
 │   │   ├── tool.py        # Tool specifications
 │   │   ├── installation.py # Installation results
@@ -364,6 +396,12 @@ pytest tests/test_orchestrator.py
    - Check API key is set
    - Verify internet connection
    - Check rate limits
+
+5. **"GitHub API rate limit exceeded"**
+   - Add GitHub token to `.env` file (see Configuration section)
+   - Without token: limited to 60 requests/hour
+   - With token: 5,000 requests/hour
+   - See `docs/github_rate_limits.md` for details
 
 ### Debug Mode
 

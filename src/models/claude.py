@@ -28,7 +28,7 @@ class ScriptMetadata(BaseModel):
     tool_name: str
     tool_version: str
     generated_at: datetime = Field(default_factory=datetime.utcnow)
-    model_used: str = Field(default="claude-3-5-sonnet-20241022")
+    model_used: str = Field(default="claude-sonnet-4-5-20250929")
     prompt_hash: str
     base_image_digest: Optional[str] = None
     standards_version: str = Field(default="1.0.0")

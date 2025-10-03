@@ -2,10 +2,11 @@
   "google_sheets": {
     "credentials_path": "path/to/your/google-credentials.json",
     "spreadsheet_id": "your-google-sheet-id-here",
-    "sheet_name": "Tools"
+    "sheet_name": "Sheet1",
+    "_comment": "For GitHub URLs format, use columns: github_url (A) and status (H)"
   },
   "claude": {
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-sonnet-4-5-20250929",
     "max_tokens": 4096,
     "temperature": 0.2,
     "max_concurrent_jobs": 5,
