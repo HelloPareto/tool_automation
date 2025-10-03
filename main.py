@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entry point for the Tool Installation Automation system.
+Main entry point for Tool Installation Automation - Using Claude's Built-in Tools
 """
 
 import asyncio
@@ -18,7 +18,6 @@ load_dotenv()
 from src.core.orchestrator import ToolInstallationOrchestrator
 from src.core.artifact_manager import ArtifactManager
 from src.integrations.google_sheets import GoogleSheetsClient, MockGoogleSheetsClient
-from src.integrations.claude_client import ClaudeClient
 from src.utils.logging import setup_root_logger
 from config.settings import Settings
 
@@ -26,7 +25,7 @@ from config.settings import Settings
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Automated Tool Installation using Claude Code"
+        description="Automated Tool Installation using Claude's Built-in Tools"
     )
     
     parser.add_argument(
@@ -64,7 +63,7 @@ def parse_arguments():
         "--max-concurrent",
         type=int,
         default=5,
-        help="Maximum concurrent Claude jobs (default: 5)"
+        help="Maximum concurrent Claude agents (default: 5)"
     )
     
     parser.add_argument(
@@ -110,6 +109,11 @@ def load_config(args) -> Settings:
             config_data.setdefault("claude", {})["max_concurrent_jobs"] = args.max_concurrent
         if args.artifacts_dir:
             config_data.setdefault("artifacts", {})["base_path"] = str(args.artifacts_dir)
+            
+        # Handle mock mode
+        if args.mock_sheets:
+            config_data["google_sheets"]["credentials_path"] = "mock"
+            config_data["google_sheets"]["spreadsheet_id"] = "mock"
         
         return Settings(**config_data)
     else:
@@ -149,7 +153,7 @@ async def main():
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info("Starting Tool Installation Automation")
+    logger.info("Starting Tool Installation Automation - Claude Built-in Tools")
     logger.info(f"Arguments: {vars(args)}")
     
     try:
@@ -173,13 +177,6 @@ async def main():
             logger.error("ANTHROPIC_API_KEY not found in environment or config")
             sys.exit(1)
         
-        claude_client = ClaudeClient(
-            api_key=api_key,
-            model=settings.claude.model,
-            max_tokens=settings.claude.max_tokens,
-            temperature=settings.claude.temperature
-        )
-        
         artifact_manager = ArtifactManager(
             base_path=settings.artifacts.base_path,
             keep_failed_attempts=settings.artifacts.keep_failed_attempts
@@ -188,15 +185,13 @@ async def main():
         # Create orchestrator
         orchestrator = ToolInstallationOrchestrator(
             sheets_client=sheets_client,
-            claude_client=claude_client,
             artifact_manager=artifact_manager,
-            docker_config=settings.docker.model_dump(),
             max_concurrent_jobs=settings.claude.max_concurrent_jobs,
             dry_run=settings.dry_run
         )
         
         # Run orchestration
-        logger.info("Starting orchestration...")
+        logger.info("Starting orchestration with Claude using built-in tools...")
         results = await orchestrator.run()
         
         # Print summary
@@ -208,6 +203,7 @@ async def main():
         logger.info(f"Successful: {results['successful']}")
         logger.info(f"Failed: {results['failed']}")
         logger.info(f"Duration: {results['duration_seconds']:.2f} seconds")
+        logger.info(f"Version: {results['orchestrator_version']}")
         logger.info("=" * 60)
         
         # Exit with appropriate code

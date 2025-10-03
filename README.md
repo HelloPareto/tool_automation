@@ -1,26 +1,46 @@
 # Tool Installation Automation System
 
-A production-ready system for automating tool installation across multiple environments using Claude AI to generate idempotent, standards-compliant installation scripts.
+A production-ready system for automating tool installation across multiple environments using Claude AI as an autonomous agent that handles the complete installation lifecycle.
 
 ## 🚀 Overview
 
-This system automates the process of:
+This system automates tool installation across multiple environments:
+
+### Current Implementation (Claude Built-in Tools) ✨
+1. Reading tool specifications from Google Sheets
+2. Launching Claude agents using native built-in tools
+3. Claude handles the complete process:
+   - Generates installation scripts (Write tool)
+   - Runs shellcheck and syntax validation (Bash tool)
+   - Builds Docker images and tests installation (Bash tool)
+   - Validates the tool works correctly (Bash tool)
+   - Reports results
+4. Orchestrator monitors progress and updates status
+
+### Alternative: V1 Architecture (Orchestrator-driven)
 1. Reading tool specifications from Google Sheets
 2. Generating installation scripts using Claude AI
-3. Validating scripts with static analysis
-4. Testing installations in Docker containers
+3. Orchestrator validates scripts with static analysis
+4. Orchestrator tests installations in Docker containers
 5. Storing artifacts and updating status
 
 ### High-Level Flow
 
+#### Current Architecture (Built-in Tools):
 ```
-Google Sheet → Orchestrator → (fan-out async) → Claude Code jobs
+Google Sheet → Orchestrator → Claude Agent (built-in tools)
                                 |
-                                ├─ standards + base Dockerfile + tool spec (context)
-                                ├─ script synthesis → self-review → JSON envelope
-                                ├─ shellcheck + bash -n
-                                ├─ docker build & run script (install & check)
-                                └─ artifacts + logs + status back to Sheet
+                                ├─ Generate script (Write tool)
+                                ├─ Run shellcheck + bash -n (Bash tool)
+                                ├─ Build Docker image (Bash tool)
+                                ├─ Test installation (Bash tool)
+                                ├─ Validate tool works (Bash tool)
+                                └─ Return results + script location
+```
+
+#### V1 Architecture (Legacy):
+```
+Google Sheet → Orchestrator → Claude (script generation) → Orchestrator (validation/Docker) → Artifacts
 ```
 
 ## 📋 Prerequisites
@@ -119,33 +139,33 @@ Create `config.json`:
 
 ## 🎯 Usage
 
-### Basic Usage
+### Default Method (Claude Built-in Tools) ✨
 
 ```bash
+# Basic usage with Claude's built-in tools
 python main.py \
+  --google-creds path/to/credentials.json \
+  --spreadsheet-id your-spreadsheet-id
+
+# With configuration file
+python main.py --config config.json
+
+# Dry run mode (skip Docker execution)
+python main.py --config config.json --dry-run
+
+# Mock mode for testing
+python main.py --mock-sheets --dry-run
+```
+
+### V1 - Original Orchestrator (Legacy)
+
+```bash
+python main_v1.py \
   --google-creds path/to/credentials.json \
   --spreadsheet-id your-spreadsheet-id
 ```
 
-### With Configuration File
 
-```bash
-python main.py --config config.json
-```
-
-### Dry Run Mode
-
-Test without Docker execution:
-```bash
-python main.py --config config.json --dry-run
-```
-
-### Mock Mode (Testing)
-
-Test without Google Sheets:
-```bash
-python main.py --mock-sheets --dry-run
-```
 
 ### Advanced Options
 
@@ -166,12 +186,15 @@ tool_code_automation/
 ├── src/
 │   ├── core/               # Core business logic
 │   │   ├── orchestrator.py # Main orchestration logic
+│   │   ├── orchestrator_v1.py # V1 legacy orchestration
+│   │   ├── claude_tools.py # Tool definitions (archived)
 │   │   ├── script_validator.py # Script validation
 │   │   ├── docker_runner.py # Docker execution
 │   │   └── artifact_manager.py # Artifact storage
 │   ├── integrations/       # External integrations
 │   │   ├── google_sheets.py # Google Sheets client
-│   │   └── claude_client.py # Claude AI client
+│   │   ├── claude_client.py # Claude AI client (V1)
+│   │   └── claude_agent.py # Claude agent with built-in tools
 │   ├── models/             # Pydantic data models
 │   │   ├── tool.py        # Tool specifications
 │   │   ├── installation.py # Installation results
@@ -184,21 +207,64 @@ tool_code_automation/
 │   ├── base.Dockerfile    # Base Docker image
 │   └── acceptance_checklist.yaml # Validation criteria
 ├── artifacts/              # Generated artifacts (auto-created)
+│   ├── tools/             # Tool installation scripts
+│   │   ├── terraform/    # terraform/tool_setup.sh
+│   │   ├── kubectl/      # kubectl/tool_setup.sh
+│   │   └── helm/         # helm/tool_setup.sh
+│   ├── runs/              # Run summaries
+│   ├── scripts/           # Other scripts
+│   ├── logs/              # Detailed logs
+│   └── metadata/          # Metadata files
 ├── logs/                   # Application logs (auto-created)
 ├── tests/                  # Test suite
 ├── scripts/                # Utility scripts
-├── main.py                # Entry point
+├── main.py                # Main entry point (built-in tools)
+├── main_v1.py            # V1 entry point (legacy)
 ├── requirements.txt       # Python dependencies
-└── README.md             # This file
+├── README.md             # This file
+└── archive/              # Archived V2 implementation
 ```
+
+## 🆚 Architecture Comparison
+
+| Feature | Current (Built-in Tools) | V1 (Legacy) |
+|---------|--------------------------|-------------|
+| **Claude's Role** | Full autonomous agent | Script generator only |
+| **Tool Access** | Built-in tools (Write, Bash, Read) | No tools |
+| **Validation** | Claude handles | Orchestrator handles |
+| **Docker Testing** | Claude handles | Orchestrator handles |
+| **Script Generation** | Via Write tool | Via API response |
+| **Architecture** | Truly autonomous | Sequential |
+| **Best For** | Production use | Simple setups or debugging |
 
 ## 🔄 Process Flow
 
-### 1. Tool Discovery
-- Reads tools from Google Sheets
-- Filters tools with status "pending" or "failed"
+### Current Process Flow (Built-in Tools)
 
-### 2. Script Generation (Per Tool)
+1. **Tool Discovery**
+   - Reads tools from Google Sheets
+   - Filters tools with status "pending" or "failed"
+
+2. **Claude Agent Execution (Per Tool)**
+   - Creates directory structure (Bash tool)
+   - Generates installation script (reasoning)
+   - Saves script to disk (Write tool)
+   - Validates with shellcheck (Bash tool)
+   - Builds Docker image (Bash tool)
+   - Tests installation (Bash tool)
+   - Reports results
+
+3. **Status Update**
+   - Updates Google Sheets with results
+   - Saves artifacts and logs
+
+### V1 Process Flow (Legacy)
+
+1. **Tool Discovery** → 2. **Script Generation** → 3. **Validation** → 4. **Docker Testing** → 5. **Artifacts**
+
+Each step handled sequentially by the orchestrator.
+
+## 📊 Script Generation Details
 - Sends context to Claude:
   - Installation standards
   - Base Dockerfile

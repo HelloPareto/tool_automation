@@ -1,32 +1,26 @@
 """
-Main orchestrator for tool installation automation.
+Orchestrator v3 - Uses Claude's built-in tools for autonomous installation.
 """
 
 import asyncio
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime
 from pathlib import Path
-import json
 
 from ..models.tool import Tool, ToolStatus
-from ..models.installation import InstallationResult
 from ..integrations.google_sheets import GoogleSheetsClient
-from ..integrations.claude_client import ClaudeClient
-from .script_validator import ScriptValidator
-from .docker_runner import DockerRunner
-from .artifact_manager import ArtifactManager
+from ..integrations.claude_agent import ClaudeInstallationAgent
+from ..core.artifact_manager import ArtifactManager
 from ..utils.logging import setup_logger
 
 
 class ToolInstallationOrchestrator:
-    """Orchestrates the tool installation process."""
+    """Orchestrates tool installation using Claude's built-in tools."""
     
     def __init__(self, 
                  sheets_client: GoogleSheetsClient,
-                 claude_client: ClaudeClient,
                  artifact_manager: ArtifactManager,
-                 docker_config: Dict[str, Any],
                  max_concurrent_jobs: int = 5,
                  dry_run: bool = False):
         """
@@ -34,18 +28,13 @@ class ToolInstallationOrchestrator:
         
         Args:
             sheets_client: Google Sheets client
-            claude_client: Claude API client
             artifact_manager: Artifact storage manager
-            docker_config: Docker configuration
-            max_concurrent_jobs: Maximum concurrent installations
-            dry_run: If True, skip actual Docker execution
+            max_concurrent_jobs: Maximum concurrent Claude agents
+            dry_run: If True, skip Docker execution
         """
         self.logger = setup_logger(__name__)
         self.sheets_client = sheets_client
-        self.claude_client = claude_client
         self.artifact_manager = artifact_manager
-        self.validator = ScriptValidator()
-        self.docker_runner = DockerRunner(docker_config)
         self.max_concurrent_jobs = max_concurrent_jobs
         self.dry_run = dry_run
         
@@ -56,6 +45,11 @@ class ToolInstallationOrchestrator:
         
         # Semaphore for rate limiting
         self.semaphore = asyncio.Semaphore(max_concurrent_jobs)
+        
+        # Create Claude agent
+        self.claude_agent = ClaudeInstallationAgent(
+            artifacts_base_path=artifact_manager.base_path
+        )
     
     async def run(self) -> Dict[str, Any]:
         """
@@ -64,7 +58,7 @@ class ToolInstallationOrchestrator:
         Returns:
             Summary of results
         """
-        self.logger.info("Starting Tool Installation Orchestrator")
+        self.logger.info("Starting Tool Installation Orchestrator (Claude Built-in Tools)")
         start_time = datetime.utcnow()
         
         # Read tools from Google Sheets
@@ -85,14 +79,14 @@ class ToolInstallationOrchestrator:
                 "duration_seconds": 0
             }
         
-        # Process tools concurrently
-        tasks = [self._process_tool(tool) for tool in pending_tools]
+        # Process tools concurrently with Claude agents
+        tasks = [self._process_tool_with_claude(tool) for tool in pending_tools]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Aggregate results
-        successful = sum(1 for r in results if isinstance(r, InstallationResult) and r.success)
+        successful = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
         failed = sum(1 for r in results if isinstance(r, Exception) or 
-                    (isinstance(r, InstallationResult) and not r.success))
+                    (isinstance(r, dict) and not r.get("success")))
         
         duration = (datetime.utcnow() - start_time).total_seconds()
         
@@ -101,180 +95,90 @@ class ToolInstallationOrchestrator:
             "processed": len(pending_tools),
             "successful": successful,
             "failed": failed,
-            "duration_seconds": duration
+            "duration_seconds": duration,
+            "orchestrator_version": "builtin_tools"
         }
         
         self.logger.info(f"Orchestration complete: {summary}")
         
         # Save summary
         summary_path = self.artifact_manager.save_json(
-            "summary.json", summary, subdirs=["runs", datetime.utcnow().strftime("%Y%m%d_%H%M%S")]
+            "summary.json", summary, 
+            subdirs=["runs", datetime.utcnow().strftime("%Y%m%d_%H%M%S")]
         )
         self.logger.info(f"Summary saved to {summary_path}")
         
         return summary
     
-    async def _process_tool(self, tool: Tool) -> InstallationResult:
-        """Process a single tool asynchronously."""
+    async def _process_tool_with_claude(self, tool: Tool) -> Dict[str, Any]:
+        """Process a single tool using Claude with built-in tools."""
         async with self.semaphore:
             try:
-                self.logger.info(f"Processing {tool.id}")
+                self.logger.info(f"Launching Claude agent for {tool.id}")
                 
                 # Update status to in_progress
                 tool.update_status(ToolStatus.IN_PROGRESS)
-                self.sheets_client.update_tool_status(tool, ToolStatus.IN_PROGRESS)
-                
-                # Create installation result
-                result = InstallationResult(
-                    tool_id=tool.id,
-                    tool_name=tool.spec.name,
-                    tool_version=tool.spec.version,
-                    script_path="",
-                    success=False  # Will be updated later
+                self.sheets_client.update_tool_status(
+                    tool, ToolStatus.IN_PROGRESS,
+                    message="Claude agent working with built-in tools..."
                 )
                 
-                # Generate script with Claude
-                self.logger.info(f"Generating script for {tool.id}")
-                tool.update_status(ToolStatus.GENERATING)
-                self.sheets_client.update_tool_status(tool, ToolStatus.GENERATING)
+                # Launch Claude agent with built-in tools
+                self.logger.info(f"Claude using built-in tools for {tool.id}")
                 
-                claude_response = await self.claude_client.generate_installation_script(
+                result = await self.claude_agent.install_tool(
                     tool_spec=tool.spec,
                     install_standards=self.install_standards,
                     base_dockerfile=self.base_dockerfile,
-                    acceptance_checklist=self.acceptance_checklist
+                    acceptance_checklist=self.acceptance_checklist,
+                    dry_run=self.dry_run
                 )
                 
-                # Check Claude's self-review
-                if claude_response.self_review.blockers:
-                    error_msg = f"Claude reported blockers: {claude_response.self_review.blockers}"
-                    self.logger.error(error_msg)
-                    result.complete(success=False)
+                # Process Claude's result
+                if result["success"]:
+                    tool.update_status(ToolStatus.COMPLETED)
+                    self.sheets_client.update_tool_status(
+                        tool, ToolStatus.COMPLETED,
+                        message=f"Installation successful (Claude built-in tools)",
+                        artifact_path=result.get("script_path", f"artifacts/tools/{tool.spec.name}/tool_setup.sh")
+                    )
+                    self.logger.info(f"Claude successfully installed {tool.id}")
+                else:
+                    error_msg = "; ".join(result.get("errors", ["Unknown error"]))[:200]
                     tool.update_status(ToolStatus.FAILED, error_msg)
                     self.sheets_client.update_tool_status(
-                        tool, ToolStatus.FAILED, error_msg
+                        tool, ToolStatus.FAILED,
+                        message=f"Installation failed: {error_msg}"
                     )
-                    return result
+                    self.logger.error(f"Claude failed to install {tool.id}: {error_msg}")
                 
-                # Save the generated script
-                script_path = self.artifact_manager.save_script(
-                    tool.spec.name, 
-                    tool.spec.version,
-                    claude_response.script_bash
-                )
-                result.script_path = str(script_path)
-                
-                # Save metadata
-                metadata = {
-                    "tool": tool.model_dump(),
-                    "claude_response": {
-                        "plan": claude_response.plan,
-                        "metadata": claude_response.metadata,
-                        "self_review": {
-                            "checklist": [item.model_dump() for item in claude_response.self_review.checklist],
-                            "blockers": claude_response.self_review.blockers,
-                            "warnings": claude_response.self_review.warnings,
-                            "confidence": claude_response.self_review.overall_confidence
-                        }
-                    },
-                    "generated_at": datetime.utcnow().isoformat()
-                }
-                
-                metadata_path = self.artifact_manager.save_json(
-                    "metadata.json", metadata,
-                    subdirs=[tool.spec.name, tool.spec.version]
+                # Save Claude's complete result
+                result_path = self.artifact_manager.save_json(
+                    "claude_result.json", result,
+                    subdirs=["tools", tool.spec.name]
                 )
                 
-                # Validate script
-                self.logger.info(f"Validating script for {tool.id}")
-                tool.update_status(ToolStatus.VALIDATING)
-                self.sheets_client.update_tool_status(tool, ToolStatus.VALIDATING)
+                # Save a summary of tool calls
+                if result.get("tool_calls_made", 0) > 0:
+                    self.logger.info(f"Claude made {result['tool_calls_made']} tool calls for {tool.id}")
                 
-                validation_results = self.validator.validate_script(script_path)
-                result.static_validation = validation_results
-                
-                # Check if static validation passed
-                if any(v.status == "failed" for v in validation_results):
-                    error_msg = "Static validation failed"
-                    self.logger.error(f"{error_msg} for {tool.id}")
-                    result.complete(success=False)
-                    tool.update_status(ToolStatus.FAILED, error_msg)
-                    self.sheets_client.update_tool_status(
-                        tool, ToolStatus.FAILED, error_msg
-                    )
-                    
-                    # Save result even if failed
-                    self._save_result(tool, result)
-                    return result
-                
-                # Run in Docker container (unless dry run)
-                if not self.dry_run:
-                    self.logger.info(f"Installing {tool.id} in Docker")
-                    tool.update_status(ToolStatus.INSTALLING)
-                    self.sheets_client.update_tool_status(tool, ToolStatus.INSTALLING)
-                    
-                    docker_result = await self.docker_runner.run_installation(
-                        script_path=script_path,
-                        tool_spec=tool.spec,
-                        base_image=self.docker_runner.config.get('base_image', 'ubuntu:22.04')
-                    )
-                    
-                    result.container_validation = docker_result
-                    result.docker_image_used = self.docker_runner.config.get('base_image')
-                    result.execution_logs = docker_result.output
-                    
-                    if docker_result.status == "failed":
-                        error_msg = f"Docker installation failed: {docker_result.error}"
-                        self.logger.error(f"{error_msg} for {tool.id}")
-                        result.complete(success=False)
-                        tool.update_status(ToolStatus.FAILED, error_msg)
-                        self.sheets_client.update_tool_status(
-                            tool, ToolStatus.FAILED, error_msg
-                        )
-                        self._save_result(tool, result)
-                        return result
-                
-                # Success!
-                result.complete(success=True)
-                tool.update_status(ToolStatus.COMPLETED)
-                
-                # Save provenance
-                provenance = self._create_provenance(tool, claude_response, result)
-                provenance_path = self.artifact_manager.save_json(
-                    "provenance.json", provenance,
-                    subdirs=[tool.spec.name, tool.spec.version]
-                )
-                result.provenance = provenance
-                
-                # Update sheet with success
-                artifact_path = f"artifacts/{tool.spec.name}/{tool.spec.version}/"
-                self.sheets_client.update_tool_status(
-                    tool, ToolStatus.COMPLETED,
-                    message="Installation successful",
-                    artifact_path=artifact_path
-                )
-                
-                # Save final result
-                self._save_result(tool, result)
-                
-                self.logger.info(f"Successfully processed {tool.id}")
                 return result
                 
             except Exception as e:
-                self.logger.error(f"Error processing {tool.id}: {e}", exc_info=True)
+                self.logger.error(f"Error with Claude agent for {tool.id}: {e}", exc_info=True)
                 
                 # Update status
                 tool.update_status(ToolStatus.FAILED, str(e))
                 self.sheets_client.update_tool_status(
-                    tool, ToolStatus.FAILED, f"Error: {str(e)}"
+                    tool, ToolStatus.FAILED, f"Claude agent error: {str(e)}"
                 )
                 
-                # Return failed result
-                if 'result' in locals():
-                    result.complete(success=False)
-                    return result
-                else:
-                    raise
+                return {
+                    "success": False,
+                    "tool_name": tool.spec.name,
+                    "tool_version": tool.spec.version,
+                    "errors": [str(e)]
+                }
     
     def _load_file(self, path: str) -> str:
         """Load a file's contents."""
@@ -283,39 +187,3 @@ class ToolInstallationOrchestrator:
             self.logger.warning(f"File not found: {path}, using empty content")
             return ""
         return file_path.read_text()
-    
-    def _create_provenance(self, tool: Tool, claude_response: Any, 
-                          result: InstallationResult) -> Dict[str, Any]:
-        """Create provenance information."""
-        return {
-            "tool": {
-                "name": tool.spec.name,
-                "version": tool.spec.version,
-                "id": tool.id
-            },
-            "generation": {
-                "model": "claude-3-5-sonnet-20241022",
-                "timestamp": datetime.utcnow().isoformat(),
-                "confidence": claude_response.self_review.overall_confidence
-            },
-            "validation": {
-                "static": [v.model_dump() for v in result.static_validation],
-                "container": result.container_validation.model_dump() if result.container_validation else None
-            },
-            "environment": {
-                "base_image": result.docker_image_used,
-                "standards_version": "1.0.0"
-            },
-            "artifacts": result.artifacts
-        }
-    
-    def _save_result(self, tool: Tool, result: InstallationResult) -> None:
-        """Save installation result."""
-        try:
-            result_path = self.artifact_manager.save_json(
-                "result.json", result.model_dump(),
-                subdirs=[tool.spec.name, tool.spec.version]
-            )
-            self.logger.info(f"Saved result to {result_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to save result: {e}")

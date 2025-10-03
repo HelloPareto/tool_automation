@@ -39,7 +39,8 @@ class ArtifactManager:
     
     def get_tool_directory(self, tool_name: str, tool_version: str) -> Path:
         """Get directory path for a specific tool."""
-        tool_dir = self.base_path / tool_name / tool_version
+        # Tools go in the tools subdirectory
+        tool_dir = self.base_path / "tools" / tool_name
         tool_dir.mkdir(parents=True, exist_ok=True)
         return tool_dir
     

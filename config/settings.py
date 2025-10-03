@@ -26,7 +26,7 @@ class GoogleSheetsConfig(BaseModel):
 
 class ClaudeConfig(BaseModel):
     """Claude API configuration."""
-    api_key: Optional[str] = Field(None, description="Anthropic API key (can use env var)")
+    api_key: Optional[str] = Field(None, env='ANTHROPIC_API_KEY', description="Anthropic API key (can use env var)")
     model: str = Field(default="claude-3-5-sonnet-20241022", description="Claude model to use")
     max_tokens: int = Field(default=4096, description="Maximum tokens for response")
     temperature: float = Field(default=0.2, description="Temperature for generation")
