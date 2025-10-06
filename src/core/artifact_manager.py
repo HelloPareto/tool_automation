@@ -14,33 +14,41 @@ import hashlib
 class ArtifactManager:
     """Manages storage of generated artifacts."""
     
-    def __init__(self, base_path: Path, keep_failed_attempts: bool = True):
+    def __init__(self, base_path: Path, keep_failed_attempts: bool = True, run_id: Optional[str] = None):
         """
         Initialize artifact manager.
         
         Args:
             base_path: Base directory for storing artifacts
             keep_failed_attempts: Whether to keep artifacts from failed attempts
+            run_id: Optional run ID for organizing artifacts by run
         """
         self.logger = logging.getLogger(__name__)
         self.base_path = Path(base_path)
         self.keep_failed_attempts = keep_failed_attempts
+        self.run_id = run_id
+        
+        # If run_id is provided, use runs directory structure
+        if self.run_id:
+            self.run_base_path = self.base_path / "runs" / self.run_id
+        else:
+            self.run_base_path = self.base_path
         
         # Create base directory
-        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.run_base_path.mkdir(parents=True, exist_ok=True)
         
         # Create standard subdirectories
-        self.scripts_dir = self.base_path / "scripts"
-        self.logs_dir = self.base_path / "logs"
-        self.metadata_dir = self.base_path / "metadata"
+        self.scripts_dir = self.run_base_path / "scripts"
+        self.logs_dir = self.run_base_path / "logs"
+        self.metadata_dir = self.run_base_path / "metadata"
         
         for dir_path in [self.scripts_dir, self.logs_dir, self.metadata_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
     
     def get_tool_directory(self, tool_name: str, tool_version: str) -> Path:
         """Get directory path for a specific tool."""
-        # Tools go in the tools subdirectory
-        tool_dir = self.base_path / "tools" / tool_name
+        # Tools go in the tools subdirectory under the run directory
+        tool_dir = self.run_base_path / "tools" / tool_name
         tool_dir.mkdir(parents=True, exist_ok=True)
         return tool_dir
     
@@ -76,25 +84,30 @@ class ArtifactManager:
         return script_path
     
     def save_json(self, filename: str, data: Dict[str, Any], 
-                  subdirs: Optional[List[str]] = None) -> Path:
+                  subdirs: Optional[List[str]] = None, 
+                  use_metadata_dir: bool = False) -> Path:
         """
         Save JSON data to file.
         
         Args:
             filename: JSON filename
             data: Data to save
-            subdirs: Optional subdirectories under base path
+            subdirs: Optional subdirectories under run base path
+            use_metadata_dir: If True and subdirs is None, save to metadata_dir instead of run_base_path
             
         Returns:
             Path to saved file
         """
         if subdirs:
-            target_dir = self.base_path
+            target_dir = self.run_base_path
             for subdir in subdirs:
                 target_dir = target_dir / subdir
             target_dir.mkdir(parents=True, exist_ok=True)
-        else:
+        elif use_metadata_dir:
             target_dir = self.metadata_dir
+        else:
+            # Default: save directly to run base path
+            target_dir = self.run_base_path
         
         json_path = target_dir / filename
         
@@ -216,8 +229,8 @@ class ArtifactManager:
                         elif file_path.suffix == '.json':
                             artifacts['metadata'].append(file_path)
         else:
-            # List all artifacts
-            for file_path in self.base_path.rglob('*'):
+            # List all artifacts for this run
+            for file_path in self.run_base_path.rglob('*'):
                 if file_path.is_file():
                     if file_path.suffix == '.sh':
                         artifacts['scripts'].append(file_path)

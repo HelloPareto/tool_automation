@@ -37,6 +37,7 @@ class ToolInstallationOrchestrator:
         self.artifact_manager = artifact_manager
         self.max_concurrent_jobs = max_concurrent_jobs
         self.dry_run = dry_run
+        self.run_id = None  # Will be set in run()
         
         # Load standards and configs
         self.install_standards = self._load_file("config/install_standards.md")
@@ -46,10 +47,8 @@ class ToolInstallationOrchestrator:
         # Semaphore for rate limiting
         self.semaphore = asyncio.Semaphore(max_concurrent_jobs)
         
-        # Create Claude agent
-        self.claude_agent = ClaudeInstallationAgent(
-            artifacts_base_path=artifact_manager.base_path
-        )
+        # Claude agent will be created in run() with proper paths
+        self.claude_agent = None
     
     async def run(self) -> Dict[str, Any]:
         """
@@ -60,6 +59,20 @@ class ToolInstallationOrchestrator:
         """
         self.logger.info("Starting Tool Installation Orchestrator (Claude Built-in Tools)")
         start_time = datetime.utcnow()
+        
+        # Generate run ID
+        self.run_id = start_time.strftime("%Y%m%d_%H%M%S")
+        self.logger.info(f"Run ID: {self.run_id}")
+        
+        # Update artifact manager with run_id
+        self.artifact_manager.run_id = self.run_id
+        self.artifact_manager.run_base_path = self.artifact_manager.base_path / "runs" / self.run_id
+        self.artifact_manager.run_base_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create Claude agent with run-specific paths
+        self.claude_agent = ClaudeInstallationAgent(
+            artifacts_base_path=self.artifact_manager.run_base_path
+        )
         
         # Read tools from Google Sheets
         tools = self.sheets_client.read_tools()
@@ -96,15 +109,15 @@ class ToolInstallationOrchestrator:
             "successful": successful,
             "failed": failed,
             "duration_seconds": duration,
-            "orchestrator_version": "builtin_tools"
+            "orchestrator_version": "builtin_tools",
+            "run_id": self.run_id
         }
         
         self.logger.info(f"Orchestration complete: {summary}")
         
-        # Save summary
+        # Save summary to the run directory
         summary_path = self.artifact_manager.save_json(
-            "summary.json", summary, 
-            subdirs=["runs", datetime.utcnow().strftime("%Y%m%d_%H%M%S")]
+            "summary.json", summary
         )
         self.logger.info(f"Summary saved to {summary_path}")
         
@@ -137,10 +150,12 @@ class ToolInstallationOrchestrator:
                 # Process Claude's result
                 if result["success"]:
                     tool.update_status(ToolStatus.COMPLETED)
+                    # Construct relative artifact path for Google Sheets
+                    artifact_path = f"artifacts/runs/{self.run_id}/tools/{tool.spec.name}/tool_setup.sh"
                     self.sheets_client.update_tool_status(
                         tool, ToolStatus.COMPLETED,
                         message=f"Installation successful (Claude built-in tools)",
-                        artifact_path=result.get("script_path", f"artifacts/tools/{tool.spec.name}/tool_setup.sh")
+                        artifact_path=artifact_path
                     )
                     self.logger.info(f"Claude successfully installed {tool.id}")
                 else:
