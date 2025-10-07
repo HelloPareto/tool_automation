@@ -2,13 +2,20 @@
 
 A production-ready system for automating tool installation across multiple environments using Claude AI as an autonomous agent that handles the complete installation lifecycle.
 
-## 🚀 NEW: GitHub Repository Support
+## 🚀 NEW: GitHub Repository Support with Deep Analysis
 
 The system now supports automatic installation from any GitHub repository URL! Simply provide a GitHub URL like `https://github.com/pandas-dev/pandas` and the system will:
-- Analyze the repository to detect installation methods
+- Analyze the repository to detect installation methods (API-first approach)
+- **Automatically clone and deeply analyze** if API analysis is insufficient
+- Scan local files for installation methods, documentation, and dependencies
 - Choose the best installation approach (pip, npm, binary, Docker, etc.)
 - Generate a production-ready installation script
 - Validate the installation
+
+**NEW**: The system now falls back to cloning repositories when needed, providing comprehensive analysis even for:
+- Repositories with non-standard structures
+- When GitHub API fails or is rate-limited
+- Private or custom tooling with unique installation methods
 
 No manual configuration needed - just provide the GitHub URL!
 
@@ -40,6 +47,7 @@ This system automates tool installation across multiple environments:
 ```
 Google Sheet → Orchestrator → Claude Agent (built-in tools)
                                 |
+                                ├─ Detect & install prerequisites (Bash tool)
                                 ├─ Generate script (Write tool)
                                 ├─ Run shellcheck + bash -n (Bash tool)
                                 ├─ Build Docker image (Bash tool)
@@ -57,6 +65,7 @@ Google Sheet → Orchestrator → Claude (script generation) → Orchestrator (v
 
 - Python 3.8+
 - Docker installed and running
+- **Git** installed (required for repository cloning fallback)
 - Google Cloud service account (for Sheets access)
 - Anthropic API key
 - `shellcheck` installed (optional but recommended)

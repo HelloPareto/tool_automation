@@ -1,5 +1,21 @@
 # Acceptance Checklist for Tool Installation Scripts
 acceptance_criteria:
+  - id: prerequisites_detected
+    description: "All prerequisites identified and documented in script"
+    required: true
+    
+  - id: prerequisites_checked
+    description: "Script checks for existing prerequisites before installing"
+    required: true
+    
+  - id: prerequisites_installed
+    description: "Missing prerequisites are installed automatically"
+    required: true
+    
+  - id: prerequisites_verified
+    description: "Prerequisites are verified to work before proceeding with tool installation"
+    required: true
+    
   - id: idempotent
     description: "Script is idempotent (re-run = no changes, still exits 0)"
     required: true

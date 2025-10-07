@@ -96,6 +96,9 @@ class ClaudeInstallationAgent:
         # Parse final results
         final_response = "\n".join(responses)
         
+        # Extract complexity assessment from response
+        complexity_assessment = self._extract_complexity_assessment(final_response)
+        
         # Determine script path
         script_path = None
         if files_created:
@@ -132,7 +135,8 @@ class ClaudeInstallationAgent:
             },
             "tool_calls_made": len(tool_calls),
             "files_created": files_created,
-            "claude_response": final_response
+            "claude_response": final_response,
+            "complexity_assessment": complexity_assessment  # New field
         }
         
         # Check for errors - be more specific about what constitutes an error
@@ -238,47 +242,150 @@ STEP-BY-STEP INSTRUCTIONS:
 1. First, ensure the directory exists:
    - Use Bash: mkdir -p {self.artifacts_base_path}/tools/{tool_spec.name}
 
-2. Analyze the tool and choose the best installation method:
+2. **DETECT PREREQUISITES** - Analyze what the tool needs:
+   - Identify programming languages (Python, Node.js, Go, Java, Rust, etc.)
+   - Identify build tools (gcc, make, cmake, etc.)
+   - Identify system libraries or dependencies
+   - List ALL prerequisites before proceeding
+
+3. Analyze the tool and choose the best installation method:
    {self._get_installation_guidance(tool_spec)}
 
-3. Generate a complete installation script that:
+4. Generate a complete installation script with PREREQUISITE HANDLING:
+   
+   The script MUST include these functions IN ORDER:
+   
+   a) **check_prerequisites()** - Check if prerequisites are already installed
+      - Use `command -v <tool>` or version checks
+      - Return 0 if all present, 1 if any missing
+      - Log what's found and what's missing
+   
+   b) **install_prerequisites()** - Install missing prerequisites
+      - Only install what's not already present (idempotency)
+      - Use appropriate package managers (apt-get, yum, etc.)
+      - Pin versions where possible
+      - Examples:
+        * Python: `apt-get install -y python3 python3-pip python3-venv`
+        * Node.js: `apt-get install -y nodejs npm` or use NodeSource
+        * Go: Download and extract to `/usr/local/go`
+        * Java: `apt-get install -y openjdk-11-jre-headless`
+        * Build tools: `apt-get install -y build-essential`
+   
+   c) **verify_prerequisites()** - Verify prerequisites work correctly
+      - Run version checks for each prerequisite
+      - Exit with error if any verification fails
+      - Examples:
+        * Python: `python3 --version && pip3 --version`
+        * Node: `node --version && npm --version`
+        * Go: `go version`
+        * Java: `java -version`
+   
+   d) **check_existing_installation()** - Check if tool is already installed (idempotency)
+   
+   e) **install_tool()** - Install the actual tool (only after prerequisites verified)
+   
+   f) **validate()** - Validate the tool installation using: {tool_spec.validate_cmd}
+   
+   The main() function must call these IN THIS ORDER:
+   ```bash
+   main() {{
+       log "Starting {tool_spec.name} {tool_spec.version} installation..."
+       
+       # Step 1: Prerequisites
+       if ! check_prerequisites; then
+           install_prerequisites
+           verify_prerequisites
+       fi
+       
+       # Step 2: Check if already installed
+       if check_existing_installation; then
+           validate
+           exit 0
+       fi
+       
+       # Step 3: Install the tool
+       install_tool
+       
+       # Step 4: Validate
+       validate
+       
+       log "Installation completed successfully"
+   }}
+   ```
+   
+   Other requirements:
    - Is idempotent (can be run multiple times safely)
    - Pins the exact version {tool_spec.version}
-   - Includes a validate() function using: {tool_spec.validate_cmd}
    - Follows all the installation standards
    - Uses set -euo pipefail for safety
-   - Uses the most appropriate installation method based on the tool type
+   - Clear logging with timestamps
+   - Actionable error messages
 
-4. Save the script:
+5. Save the script:
    - Use Write tool to save to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Verify it was saved correctly with Read tool
 
-5. Validate the script:
+6. Validate the script:
    - Use Bash: shellcheck -x {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Use Bash: bash -n {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Report any issues found
 
-6. {"Skip Docker testing due to dry run mode" if dry_run else f'''Test in Docker:
+7. {"Skip Docker testing due to dry run mode" if dry_run else f'''Test in Docker:
    - Create a test directory with Bash: mkdir -p /tmp/docker_test_{tool_spec.name}_{tool_spec.version}
    - Use Write to create Dockerfile at: /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/Dockerfile
      Content should be based on the base Dockerfile and copy/run your script
    - Copy the script with Bash: cp {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/
-   - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build -t test_{tool_spec.name}_{tool_spec.version} .
+   - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build --platform linux/amd64 -t test_{tool_spec.name}_{tool_spec.version} .
    - Use Bash: docker run --rm test_{tool_spec.name}_{tool_spec.version} {tool_spec.validate_cmd}
    - Clean up with Bash: docker rmi test_{tool_spec.name}_{tool_spec.version} && rm -rf /tmp/docker_test_{tool_spec.name}_{tool_spec.version}'''}
 
-7. Summary:
+8. Summary:
    - Report if all steps completed successfully
    - List any errors encountered
    - Confirm the script is saved at the correct location
    - Report which installation method was used
+
+9. **COMPLEXITY ASSESSMENT** (Required):
+   Based on the installation you just completed, provide a complexity assessment as JSON.
+   
+   Analyze these factors:
+   • Prerequisites: How many? How common? (Python/Node = common, CUDA = rare)
+   • Installation Method: Package manager (simple) vs binary vs source compilation (complex)
+   • Build Process: None vs simple make vs complex toolchain
+   • Dependencies: Count and nature
+   • Special Requirements: Architecture-specific, checksums, services, etc.
+   
+   Complexity scale (1-10):
+   • 1-2: Very Low (single pip/npm, no prerequisites)
+   • 3-4: Low (1-2 common prerequisites, straightforward)
+   • 5-6: Medium (multiple steps, verification, architecture detection)
+   • 7-8: High (compilation, many prerequisites, complex dependencies)
+   • 9-10: Very High (exotic dependencies, platform-specific toolchains)
+   
+   IMPORTANT: At the end of your response, provide this JSON block:
+   
+   ```json
+   {{
+     "summary": "3-4 sentences explaining installation complexity. Focus on what makes this tool simple or complex. Mention prerequisites, installation method, and special requirements.",
+     "score": <1-10>,
+     "key_factors": [
+       "Most impactful complexity factor",
+       "Second factor",
+       "Third factor if applicable"
+     ],
+     "installation_method": "<pip|npm|binary|docker|source|go_install|script|custom>",
+     "prerequisites_count": <number>,
+     "requires_compilation": <true|false>
+   }}
+   ```
 
 Remember:
 - Use Bash tool for ALL command execution
 - Use Write tool to create files
 - Use Read tool to verify files
 - Be explicit about each step and its result
-- The script MUST be saved to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh"""
+- The script MUST be saved to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
+- **End with the complexity assessment JSON**"""
     
     def _get_installation_guidance(self, tool_spec: ToolSpec) -> str:
         """Get specific installation guidance based on detected methods."""
@@ -339,3 +446,58 @@ Remember:
    - Use the detected methods as guidance
    - Choose the most appropriate for a system-wide installation
    - Prefer binary releases or package managers over building from source"""
+    
+    def _extract_complexity_assessment(self, response: str) -> dict:
+        """
+        Extract complexity assessment JSON from Claude's response.
+        
+        Args:
+            response: Full response text from Claude
+            
+        Returns:
+            Dictionary with complexity assessment, or default if not found
+        """
+        import json
+        import re
+        
+        # Try to find JSON block in response (looking for the complexity assessment)
+        # Pattern 1: Look for JSON in code blocks
+        json_pattern = r'```json\s*(\{[^`]*?"summary"[^`]*?\})\s*```'
+        matches = re.findall(json_pattern, response, re.DOTALL | re.IGNORECASE)
+        
+        if matches:
+            # Try to parse the last JSON block (should be the complexity assessment)
+            for match in reversed(matches):
+                try:
+                    assessment = json.loads(match)
+                    # Validate it's a complexity assessment
+                    if "summary" in assessment and "score" in assessment:
+                        self.logger.info(f"Successfully extracted complexity assessment: score={assessment.get('score')}")
+                        return assessment
+                except json.JSONDecodeError:
+                    continue
+        
+        # Pattern 2: Look for raw JSON (without code blocks)
+        json_pattern2 = r'\{[^{}]*"summary"[^{}]*"score"[^{}]*\}'
+        matches2 = re.findall(json_pattern2, response, re.DOTALL)
+        
+        if matches2:
+            for match in reversed(matches2):
+                try:
+                    assessment = json.loads(match)
+                    if "summary" in assessment and "score" in assessment:
+                        self.logger.info(f"Extracted complexity assessment from raw JSON: score={assessment.get('score')}")
+                        return assessment
+                except json.JSONDecodeError:
+                    continue
+        
+        # Default if not found
+        self.logger.warning("Could not extract complexity assessment from Claude's response")
+        return {
+            "summary": "Complexity assessment not provided by Claude.",
+            "score": None,
+            "key_factors": [],
+            "installation_method": "unknown",
+            "prerequisites_count": 0,
+            "requires_compilation": False
+        }
