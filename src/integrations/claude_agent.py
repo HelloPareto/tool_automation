@@ -356,14 +356,21 @@ STEP-BY-STEP INSTRUCTIONS:
    - Report any issues found
 
 7. {"Skip Docker testing due to dry run mode" if dry_run else f'''Test in Docker:
-   - Create a test directory with Bash: mkdir -p /tmp/docker_test_{tool_spec.name}_{tool_spec.version}
-   - Use Write to create Dockerfile at: /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/Dockerfile
-     Content should be based on the base Dockerfile and copy/run your script
-   - Copy the script with Bash: cp {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/
-   - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build --platform linux/amd64 --progress=plain --no-cache -t test_{tool_spec.name}_{tool_spec.version} .
-     Note: Build may take 10-30 minutes for complex tools with compilation. Be patient.
-   - Use Bash: docker run --rm test_{tool_spec.name}_{tool_spec.version} {tool_spec.validate_cmd}
-   - Clean up with Bash: docker rmi test_{tool_spec.name}_{tool_spec.version} && rm -rf /tmp/docker_test_{tool_spec.name}_{tool_spec.version}'''}
+           - Create a test directory with Bash: mkdir -p /tmp/docker_test_{tool_spec.name}_{tool_spec.version}
+           - Use Write to create Dockerfile at: /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/Dockerfile
+             Content should be based on the base Dockerfile and COPY your script into the image, but DO NOT RUN it during build.
+             Example Dockerfile snippet:
+             # --- begin ---
+             # Base content from provided base Dockerfile above
+             # add required runtime packages only if absolutely necessary
+             COPY tool_setup.sh /workspace/tool_setup.sh
+             RUN chmod +x /workspace/tool_setup.sh
+             # --- end ---
+           - Copy the script with Bash: cp {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/
+           - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build --platform linux/amd64 --progress=plain --no-cache -t test_{tool_spec.name}_{tool_spec.version} .
+             Note: Build may take 10-30 minutes for complex tools with compilation so build docker container with 30 mins as runtime initially. Be patient.
+           - Use Bash: docker run --rm -e DEBIAN_FRONTEND=noninteractive test_{tool_spec.name}_{tool_spec.version} bash -lc "/workspace/tool_setup.sh && {tool_spec.validate_cmd}"
+           - Clean up with Bash: docker rmi test_{tool_spec.name}_{tool_spec.version} && rm -rf /tmp/docker_test_{tool_spec.name}_{tool_spec.version}'''}
 
 8. Summary:
    - Report if all steps completed successfully
