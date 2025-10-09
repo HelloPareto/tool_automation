@@ -89,7 +89,9 @@ class ToolInstallationOrchestrator:
                 "processed": 0,
                 "successful": 0,
                 "failed": 0,
-                "duration_seconds": 0
+                "duration_seconds": 0,
+                "orchestrator_version": "builtin_tools",
+                "run_id": self.run_id
             }
         
         # Process tools concurrently with Claude agents

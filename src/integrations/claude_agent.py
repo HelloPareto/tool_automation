@@ -171,17 +171,19 @@ class ClaudeInstallationAgent:
         """Get the system prompt for Claude."""
         return f"""You are an expert DevOps engineer responsible for autonomously installing tools.
 
-Many tools come from GitHub repositories. When a GitHub URL is provided, I've already analyzed the repository
-to detect possible installation methods (pip, npm, binary releases, Docker, etc.). Use this information to
-choose the most appropriate installation method.
+When a GitHub URL is provided, YOU must analyze the repository to determine the best installation method.
+Do NOT rely on pre-analysis - research the specific repository yourself using web search and/or cloning.
 
 Your task is to use your built-in tools to:
-1. Generate an idempotent installation script following the provided standards
-2. Choose the best installation method based on the tool type and available options
+1. **Analyze the repository** (if GitHub URL provided):
+   - Web search for installation docs specific to that GitHub repository
+   - Clone and examine the repository if needed to understand installation approach
+   - Determine the best method: pip, npm, binary, Docker, source build, etc.
+2. Generate an idempotent installation script with prerequisite handling
 3. Save the script using the Write tool to artifacts/tools/<tool_name>/tool_setup.sh
-4. Validate the script with shellcheck using the Bash tool
-5. Check bash syntax using Bash tool with bash -n
-6. {"Skip Docker testing (dry run mode)" if dry_run else "Test the installation in a Docker container using Bash tool"}
+4. Validate the script with shellcheck and bash syntax checks using the Bash tool
+5. {"Skip Docker testing (dry run mode)" if dry_run else "Test the installation in a Docker container using Bash tool"}
+6. Assess the installation complexity
 7. Report results clearly
 
 You have access to these built-in tools:
@@ -206,15 +208,7 @@ Important:
         github_info = ""
         if tool_spec.github_url:
             github_info = f"""
-GitHub Repository Analysis:
-- GitHub URL: {tool_spec.github_url}
-- Detected Installation Methods: {', '.join(tool_spec.detected_install_methods) if tool_spec.detected_install_methods else 'None detected'}
-- Package Name: {tool_spec.package_name or 'Not detected'}
-- Docker Image: {tool_spec.docker_image or 'Not available'}
-- Binary Pattern: {tool_spec.binary_pattern or 'No binary releases'}
-
-Installation Documentation Found:
-{tool_spec.installation_docs or 'No specific installation docs found'}
+GitHub Repository: {tool_spec.github_url}
 """
         
         return f"""Install {tool_spec.name} version {tool_spec.version} following these specifications:
@@ -223,7 +217,7 @@ Tool Details:
 - Name: {tool_spec.name}
 - Version: {tool_spec.version}
 - Validate Command: {tool_spec.validate_cmd}
-- Package Manager: {tool_spec.package_manager or 'auto-detect'}
+- Description: {tool_spec.description or 'Not provided'}
 {f"- Repository URL: {tool_spec.repository_url}" if tool_spec.repository_url else ""}
 {f"- GPG Key URL: {tool_spec.gpg_key_url}" if tool_spec.gpg_key_url else ""}
 {github_info}
@@ -239,17 +233,48 @@ Acceptance Checklist:
 
 STEP-BY-STEP INSTRUCTIONS:
 
-1. First, ensure the directory exists:
-   - Use Bash: mkdir -p {self.artifacts_base_path}/tools/{tool_spec.name}
+1. **ANALYZE THE REPOSITORY** (REQUIRED):
+   {"Since this is a GitHub-based installation, you MUST research the repository first:" if tool_spec.github_url else "Ensure the directory exists:"}
+   
+   {"a) Research installation methods for this SPECIFIC repository:" if tool_spec.github_url else ""}
+      {"- Use github based web search to find: installation guide for " + tool_spec.github_url if tool_spec.github_url else ""}
+      {"- Focus on official documentation from this repository" if tool_spec.github_url else ""}
+      {"- Check GitHub releases page for binary downloads" if tool_spec.github_url else ""}
+      {"- Look for: README.md installation sections, INSTALL.md, docs/installation.md" if tool_spec.github_url else ""}
+   
+   {"b) If needed, clone and analyze the repository locally:" if tool_spec.github_url else ""}
+      {"- Use Bash: git clone --depth 1 " + tool_spec.github_url + " /tmp/" + tool_spec.name + "_analysis" if tool_spec.github_url else ""}
+      {"- Use Read or Bash to check key files:" if tool_spec.github_url else ""}
+        {"* README.md (installation instructions)" if tool_spec.github_url else ""}
+        {"* setup.py / pyproject.toml (Python)" if tool_spec.github_url else ""}
+        {"* package.json (Node.js)" if tool_spec.github_url else ""}
+        {"* go.mod (Go)" if tool_spec.github_url else ""}
+        {"* Cargo.toml (Rust)" if tool_spec.github_url else ""}
+        {"* Makefile / CMakeLists.txt (build system)" if tool_spec.github_url else ""}
+        {"* Dockerfile (containerized)" if tool_spec.github_url else ""}
+      {"- Use Bash to clean up: rm -rf /tmp/" + tool_spec.name + "_analysis" if tool_spec.github_url else ""}
+   
+   {"c) Determine the BEST installation method based on your research:" if tool_spec.github_url else ""}
+      {"- Python: pip install (check for package on PyPI)" if tool_spec.github_url else ""}
+      {"- Node.js: npm install -g (check npm registry)" if tool_spec.github_url else ""}
+      {"- Go: go install github.com/..." if tool_spec.github_url else ""}
+      {"- Binary: Download from GitHub releases" if tool_spec.github_url else ""}
+      {"- Docker: Use official Docker image if available" if tool_spec.github_url else ""}
+      {"- Build from source: Last resort for complex tools" if tool_spec.github_url else ""}
+   
+   {"d) Create the directory:" if tool_spec.github_url else "- Use Bash: mkdir -p " + str(self.artifacts_base_path) + "/tools/" + tool_spec.name}
+      {"- Use Bash: mkdir -p " + str(self.artifacts_base_path) + "/tools/" + tool_spec.name if tool_spec.github_url else ""}
 
-2. **DETECT PREREQUISITES** - Analyze what the tool needs:
-   - Identify programming languages (Python, Node.js, Go, Java, Rust, etc.)
-   - Identify build tools (gcc, make, cmake, etc.)
+2. **DETECT PREREQUISITES** - Based on the installation method you chose:
+   - Identify programming languages needed (Python, Node.js, Go, Java, Rust, etc.)
+   - Identify build tools if needed (gcc, make, cmake, etc.)
    - Identify system libraries or dependencies
    - List ALL prerequisites before proceeding
 
-3. Analyze the tool and choose the best installation method:
-   {self._get_installation_guidance(tool_spec)}
+3. **CHOOSE INSTALLATION APPROACH**:
+   - Based on your repository analysis above, select the most appropriate method
+   - Prefer simpler methods (package managers) over complex (source builds)
+   - Consider: ease of installation, version pinning, reproducibility
 
 4. Generate a complete installation script with PREREQUISITE HANDLING:
    
@@ -335,7 +360,8 @@ STEP-BY-STEP INSTRUCTIONS:
    - Use Write to create Dockerfile at: /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/Dockerfile
      Content should be based on the base Dockerfile and copy/run your script
    - Copy the script with Bash: cp {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh /tmp/docker_test_{tool_spec.name}_{tool_spec.version}/
-   - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build --platform linux/amd64 -t test_{tool_spec.name}_{tool_spec.version} .
+   - Use Bash: cd /tmp/docker_test_{tool_spec.name}_{tool_spec.version} && docker build --platform linux/amd64 --progress=plain --no-cache -t test_{tool_spec.name}_{tool_spec.version} .
+     Note: Build may take 10-30 minutes for complex tools with compilation. Be patient.
    - Use Bash: docker run --rm test_{tool_spec.name}_{tool_spec.version} {tool_spec.validate_cmd}
    - Clean up with Bash: docker rmi test_{tool_spec.name}_{tool_spec.version} && rm -rf /tmp/docker_test_{tool_spec.name}_{tool_spec.version}'''}
 
@@ -386,66 +412,6 @@ Remember:
 - Be explicit about each step and its result
 - The script MUST be saved to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
 - **End with the complexity assessment JSON**"""
-    
-    def _get_installation_guidance(self, tool_spec: ToolSpec) -> str:
-        """Get specific installation guidance based on detected methods."""
-        if not tool_spec.detected_install_methods:
-            return """
-   - No specific installation method detected
-   - Check if there are binary releases available
-   - Look for installation documentation in README
-   - Consider building from source if necessary"""
-        
-        guidance = []
-        
-        # Python packages
-        if "pip" in tool_spec.detected_install_methods:
-            pkg = tool_spec.package_name or tool_spec.name
-            guidance.append(f"""
-   - Python package detected: Use pip install {pkg}
-   - Check PyPI for available versions
-   - Consider using virtual environment""")
-        
-        # Node.js packages
-        if "npm" in tool_spec.detected_install_methods:
-            pkg = tool_spec.package_name or tool_spec.name
-            guidance.append(f"""
-   - Node.js package detected: Use npm install -g {pkg}
-   - Check npm registry for versions""")
-        
-        # Go packages
-        if "go_install" in tool_spec.detected_install_methods:
-            pkg = tool_spec.package_name or f"github.com/{tool_spec.github_url.split('/')[-2]}/{tool_spec.github_url.split('/')[-1]}"
-            guidance.append(f"""
-   - Go module detected: Use go install {pkg}@{tool_spec.version}
-   - Ensure Go is available in the environment""")
-        
-        # Binary releases
-        if "binary_release" in tool_spec.detected_install_methods:
-            guidance.append(f"""
-   - Binary releases available on GitHub
-   - Download appropriate binary for Linux amd64
-   - Pattern: {tool_spec.binary_pattern or 'Check releases page'}""")
-        
-        # Docker
-        if "docker" in tool_spec.detected_install_methods:
-            img = tool_spec.docker_image or f"{tool_spec.name}:latest"
-            guidance.append(f"""
-   - Docker image available: {img}
-   - Consider if Docker installation is appropriate
-   - May need wrapper script for CLI usage""")
-        
-        # Docker Compose
-        if "docker_compose" in tool_spec.detected_install_methods:
-            guidance.append("""
-   - Docker Compose setup available
-   - This is typically for full applications, not CLI tools
-   - Consider extracting just the necessary components""")
-        
-        return "\n".join(guidance) if guidance else """
-   - Use the detected methods as guidance
-   - Choose the most appropriate for a system-wide installation
-   - Prefer binary releases or package managers over building from source"""
     
     def _extract_complexity_assessment(self, response: str) -> dict:
         """

@@ -166,8 +166,8 @@ Create `config.json`:
   },
   "docker": {
     "base_image": "ubuntu:22.04",
-    "build_timeout": 300,
-    "run_timeout": 600
+    "build_timeout": 1800,
+    "run_timeout": 900
   },
   "artifacts": {
     "base_path": "artifacts",

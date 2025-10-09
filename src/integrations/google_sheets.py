@@ -138,48 +138,35 @@ class GoogleSheetsClient:
                         tools.append(tool)
                         self.logger.debug(f"Skipped analysis for {github_url} (status: {status_str})")
                 
-                # Second pass: Analyze only pending/failed repositories
-                self.logger.info(f"Found {len(rows_to_process)} tools requiring analysis (out of {len(values)-1} total)")
+                # Second pass: Fetch basic info only (Claude handles installation analysis)
+                self.logger.info(f"Found {len(rows_to_process)} tools requiring processing (out of {len(values)-1} total)")
                 
                 for row_idx, github_url, status_str in rows_to_process:
                     try:
-                        # Analyze the repository
-                        self.logger.info(f"Analyzing GitHub repository: {github_url}")
-                        analysis = analyzer.analyze_repository(github_url)
+                        # Fetch basic repository info
+                        self.logger.info(f"Fetching basic info for: {github_url}")
+                        repo_info = analyzer.get_basic_info(github_url)
                         
-                        # Create tool spec based on analysis
+                        # Create ToolSpec with minimal info - Claude will analyze installation
                         spec = ToolSpec(
-                            name=analysis.repo_name,
-                            version=analysis.latest_version or "latest",
-                            validate_cmd=analysis.validation_command or f"{analysis.repo_name} --version",
-                            description=analysis.description or f"Tool from {github_url}",
-                            github_url=github_url,
-                            detected_install_methods=[method.value for method in analysis.install_methods],
-                            package_name=analysis.package_name,
-                            docker_image=analysis.docker_image,
-                            binary_pattern=analysis.binary_pattern,
-                            installation_docs=analysis.installation_docs
+                            name=repo_info.repo_name,
+                            version=repo_info.latest_version or "latest",
+                            validate_cmd=f"{repo_info.repo_name} --version",  # Claude will refine
+                            description=repo_info.description or f"Tool from {github_url}",
+                            github_url=github_url
                         )
                         
-                        # Determine primary package manager
-                        if analysis.install_methods:
-                            primary_method = analysis.install_methods[0]
-                            spec.package_manager = primary_method.value
-                        else:
-                            spec.package_manager = "unknown"
-                        
                         tool = Tool(
-                            id=f"{analysis.repo_name}-{spec.version}",
+                            id=f"{spec.name}-{spec.version}",
                             spec=spec,
                             row_number=row_idx,
                             status=self._parse_status(status_str)
                         )
-                        
                         tools.append(tool)
                         
                     except Exception as e:
-                        self.logger.error(f"Failed to analyze {github_url}: {e}")
-                        # Create a basic tool entry with failed status
+                        self.logger.error(f"Failed to fetch info for {github_url}: {e}")
+                        # Create a basic tool entry - Claude will still try
                         repo_name = github_url.split('/')[-1].replace('.git', '')
                         tool = Tool(
                             id=f"{repo_name}-unknown",
@@ -187,11 +174,11 @@ class GoogleSheetsClient:
                                 name=repo_name,
                                 version="latest",
                                 validate_cmd=f"{repo_name} --version",
-                                description=f"Tool from {github_url} (analysis failed)",
+                                description=f"Tool from {github_url}",
                                 github_url=github_url
                             ),
                             row_number=row_idx,
-                            status=ToolStatus.PENDING  # Keep as pending so it can be retried
+                            status=ToolStatus.PENDING
                         )
                         tools.append(tool)
             else:
