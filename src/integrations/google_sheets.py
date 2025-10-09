@@ -98,6 +98,9 @@ class GoogleSheetsClient:
                 
                 # Parse tools from GitHub URLs
                 tools = []
+                
+                # First pass: Read all rows and identify which need analysis
+                rows_to_process = []
                 for row_idx, row in enumerate(values[1:], start=2):
                     if not row or len(row) == 0:
                         continue
@@ -110,44 +113,60 @@ class GoogleSheetsClient:
                     # Get status if available
                     status_str = row[header_map['status']] if 'status' in header_map and header_map['status'] < len(row) else 'pending'
                     
+                    # Parse status
+                    status = self._parse_status(status_str)
+                    
+                    # Only analyze repositories that are pending or failed (need processing)
+                    if status in [ToolStatus.PENDING, ToolStatus.FAILED]:
+                        rows_to_process.append((row_idx, github_url, status_str))
+                        self.logger.debug(f"Queued for analysis: {github_url} (status: {status_str})")
+                    else:
+                        # For completed/in_progress tools, create minimal Tool object without GitHub analysis
+                        repo_name = github_url.split('/')[-1].replace('.git', '')
+                        tool = Tool(
+                            id=f"{repo_name}-existing",
+                            spec=ToolSpec(
+                                name=repo_name,
+                                version="unknown",
+                                validate_cmd=f"{repo_name} --version",
+                                description=f"Tool from {github_url}",
+                                github_url=github_url
+                            ),
+                            row_number=row_idx,
+                            status=status
+                        )
+                        tools.append(tool)
+                        self.logger.debug(f"Skipped analysis for {github_url} (status: {status_str})")
+                
+                # Second pass: Fetch basic info only (Claude handles installation analysis)
+                self.logger.info(f"Found {len(rows_to_process)} tools requiring processing (out of {len(values)-1} total)")
+                
+                for row_idx, github_url, status_str in rows_to_process:
                     try:
-                        # Analyze the repository
-                        self.logger.info(f"Analyzing GitHub repository: {github_url}")
-                        analysis = analyzer.analyze_repository(github_url)
+                        # Fetch basic repository info
+                        self.logger.info(f"Fetching basic info for: {github_url}")
+                        repo_info = analyzer.get_basic_info(github_url)
                         
-                        # Create tool spec based on analysis
+                        # Create ToolSpec with minimal info - Claude will analyze installation
                         spec = ToolSpec(
-                            name=analysis.repo_name,
-                            version=analysis.latest_version or "latest",
-                            validate_cmd=analysis.validation_command or f"{analysis.repo_name} --version",
-                            description=analysis.description or f"Tool from {github_url}",
-                            github_url=github_url,
-                            detected_install_methods=[method.value for method in analysis.install_methods],
-                            package_name=analysis.package_name,
-                            docker_image=analysis.docker_image,
-                            binary_pattern=analysis.binary_pattern,
-                            installation_docs=analysis.installation_docs
+                            name=repo_info.repo_name,
+                            version=repo_info.latest_version or "latest",
+                            validate_cmd=f"{repo_info.repo_name} --version",  # Claude will refine
+                            description=repo_info.description or f"Tool from {github_url}",
+                            github_url=github_url
                         )
                         
-                        # Determine primary package manager
-                        if analysis.install_methods:
-                            primary_method = analysis.install_methods[0]
-                            spec.package_manager = primary_method.value
-                        else:
-                            spec.package_manager = "unknown"
-                        
                         tool = Tool(
-                            id=f"{analysis.repo_name}-{spec.version}",
+                            id=f"{spec.name}-{spec.version}",
                             spec=spec,
                             row_number=row_idx,
                             status=self._parse_status(status_str)
                         )
-                        
                         tools.append(tool)
                         
                     except Exception as e:
-                        self.logger.error(f"Failed to analyze {github_url}: {e}")
-                        # Create a basic tool entry
+                        self.logger.error(f"Failed to fetch info for {github_url}: {e}")
+                        # Create a basic tool entry - Claude will still try
                         repo_name = github_url.split('/')[-1].replace('.git', '')
                         tool = Tool(
                             id=f"{repo_name}-unknown",
@@ -159,7 +178,7 @@ class GoogleSheetsClient:
                                 github_url=github_url
                             ),
                             row_number=row_idx,
-                            status=self._parse_status(status_str)
+                            status=ToolStatus.PENDING
                         )
                         tools.append(tool)
             else:
@@ -301,24 +320,27 @@ class MockGoogleSheetsClient:
         self.logger.info("Using mock Google Sheets client")
     
     def read_tools(self) -> List[Tool]:
-        """Return sample tools for testing."""
+        """Return sample tools for testing with pending status only."""
         # Sample GitHub URLs from the user's spreadsheet
-        github_urls = [
-            "https://github.com/airbytehq/airbyte",
-            # "https://github.com/apache/airflow",
-            # "https://github.com/dbt-labs/dbt-core",
-            # "https://github.com/duckdb/duckdb",
-            "https://github.com/pandas-dev/pandas",
-            # Additional samples for testing different types
-            # "https://github.com/Nixiris/statsforecast",
-            "https://github.com/sktime/sktime",
-            # "https://github.com/google/or-tools",
+        # Format: (github_url, status)
+        github_tools = [
+            ("https://github.com/airbytehq/airbyte", "pending"),
+            ("https://github.com/pandas-dev/pandas", "pending"),
+            ("https://github.com/sktime/sktime", "pending"),
+            # Examples of tools that would be skipped (already completed)
+            # ("https://github.com/apache/airflow", "completed"),
+            # ("https://github.com/dbt-labs/dbt-core", "completed"),
         ]
         
         analyzer = GitHubAnalyzer()
         tools = []
         
-        for idx, github_url in enumerate(github_urls, start=2):
+        # Filter to only analyze pending tools (simulating the optimization)
+        pending_tools = [(idx+2, url, status) for idx, (url, status) in enumerate(github_tools) if status == "pending"]
+        
+        self.logger.info(f"Found {len(pending_tools)} pending tools to analyze (out of {len(github_tools)} total)")
+        
+        for idx, github_url, status in pending_tools:
             try:
                 # Analyze the repository
                 analysis = analyzer.analyze_repository(github_url)

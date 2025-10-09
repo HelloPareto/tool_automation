@@ -49,8 +49,8 @@ def parse_arguments():
     parser.add_argument(
         "--sheet-name",
         type=str,
-        default="Tools",
-        help="Sheet name containing tool list (default: Tools)"
+        default=None,
+        help="Sheet name containing tool list (overrides config.json if provided)"
     )
     
     parser.add_argument(
@@ -127,7 +127,7 @@ def load_config(args) -> Settings:
             "google_sheets": {
                 "credentials_path": str(args.google_creds) if args.google_creds else "mock",
                 "spreadsheet_id": args.spreadsheet_id or "mock",
-                "sheet_name": args.sheet_name
+                "sheet_name": args.sheet_name or "Tools"
             },
             "claude": {
                 "max_concurrent_jobs": args.max_concurrent

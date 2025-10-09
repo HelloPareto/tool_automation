@@ -15,9 +15,10 @@
   },
   "docker": {
     "base_image": "ubuntu:22.04",
-    "build_timeout": 300,
-    "run_timeout": 600,
-    "cleanup_containers": true
+    "build_timeout": 1800,
+    "run_timeout": 900,
+    "cleanup_containers": true,
+    "_comment": "Timeouts in seconds: build_timeout=1800 (30 min), run_timeout=900 (15 min)"
   },
   "artifacts": {
     "base_path": "artifacts",

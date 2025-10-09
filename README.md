@@ -1,444 +1,242 @@
-# Tool Installation Automation System
+## Tool Installation Automation System (Claude Built‑in Tools)
 
-A production-ready system for automating tool installation across multiple environments using Claude AI as an autonomous agent that handles the complete installation lifecycle.
+A production‑grade system to generate, validate, and test idempotent installers (`tool_setup.sh`) for tools discovered from GitHub repositories listed in Google Sheets. Claude Code (Agent SDK) performs repository analysis, prerequisite detection, script authoring, linting, and Docker testing using its built‑in tools.
 
-## 🚀 NEW: GitHub Repository Support
+---
 
-The system now supports automatic installation from any GitHub repository URL! Simply provide a GitHub URL like `https://github.com/pandas-dev/pandas` and the system will:
-- Analyze the repository to detect installation methods
-- Choose the best installation approach (pip, npm, binary, Docker, etc.)
-- Generate a production-ready installation script
-- Validate the installation
+### ⭐ Highlights
+- GitHub‑focused analysis (web search scoped to the repo; clones if needed)
+- Idempotent, POSIX‑compliant installers with prerequisite handling
+- Static validation (shellcheck, bash -n)
+- Container validation: build base image, COPY the script, run at container runtime
+- Artifacts per run with provenance and complexity assessment
+- Scales with concurrency and rate‑limit aware GitHub access
 
-No manual configuration needed - just provide the GitHub URL!
+---
 
-## 🚀 Overview
-
-This system automates tool installation across multiple environments:
-
-### Current Implementation (Claude Built-in Tools) ✨
-1. Reading tool specifications from Google Sheets
-2. Launching Claude agents using native built-in tools
-3. Claude handles the complete process:
-   - Generates installation scripts (Write tool)
-   - Runs shellcheck and syntax validation (Bash tool)
-   - Builds Docker images and tests installation (Bash tool)
-   - Validates the tool works correctly (Bash tool)
-   - Reports results
-4. Orchestrator monitors progress and updates status
-
-### Alternative: V1 Architecture (Orchestrator-driven)
-1. Reading tool specifications from Google Sheets
-2. Generating installation scripts using Claude AI
-3. Orchestrator validates scripts with static analysis
-4. Orchestrator tests installations in Docker containers
-5. Storing artifacts and updating status
-
-### High-Level Flow
-
-#### Current Architecture (Built-in Tools):
+### 🧭 Architecture (Current)
 ```
-Google Sheet → Orchestrator → Claude Agent (built-in tools)
-                                |
-                                ├─ Generate script (Write tool)
-                                ├─ Run shellcheck + bash -n (Bash tool)
-                                ├─ Build Docker image (Bash tool)
-                                ├─ Test installation (Bash tool)
-                                ├─ Validate tool works (Bash tool)
-                                └─ Return results + script location
+Google Sheet (pending/failed tools only)
+   │   columns: github_url, status
+   ▼
+Orchestrator (Python)
+   │  - read sheet (filters pending/failed)
+   │  - minimal GitHub metadata via GitHub API (name/desc/version)
+   │  - pass tool spec + standards + base Dockerfile to Claude
+   ▼
+Claude Agent (Built‑in Tools)
+   1) Analyze repo (GitHub‑focused web search; clone if needed)
+   2) Detect & install prerequisites (Python/Node/Go/Build tools/etc.)
+   3) Author script: artifacts/runs/<run_id>/tools/<tool>/tool_setup.sh
+   4) Lint: shellcheck + bash -n
+   5) Docker test:
+      - Build image from base.Dockerfile (COPY script only)
+      - Run container: execute script, then validate_cmd
+   6) Complexity assessment → claude_result.json
+   7) Save artifacts, update Google Sheet status
+   ▼
+Artifacts
+   - runs/<run_id>/summary.json
+   - runs/<run_id>/tools/<tool>/{tool_setup.sh, claude_result.json}
 ```
 
-#### V1 Architecture (Legacy):
+---
+
+### 📂 Project Structure (key paths)
 ```
-Google Sheet → Orchestrator → Claude (script generation) → Orchestrator (validation/Docker) → Artifacts
+.
+├─ main.py                         # Entry point (V3)
+├─ config/
+│  ├─ base.Dockerfile             # Base image used for Docker tests
+│  ├─ install_standards.md        # Solutions Team install standards
+│  ├─ acceptance_checklist.yaml   # Acceptance criteria
+│  └─ settings.py                 # Pydantic Settings models
+├─ src/
+│  ├─ core/
+│  │  ├─ orchestrator.py          # V3 orchestration (built‑in tools)
+│  │  ├─ artifact_manager.py
+│  │  ├─ claude_tools.py          # Built‑in tool wrappers
+│  │  ├─ docker_runner.py         # (legacy helper; V3 prefers Claude Bash)
+│  │  └─ script_validator.py
+│  ├─ integrations/
+│  │  ├─ claude_agent.py          # ClaudeInstallationAgent (V3)
+│  │  └─ google_sheets.py         # Google Sheets integration
+│  ├─ analyzers/
+│  │  └─ github_analyzer.py       # Simplified: basic repo metadata only
+│  └─ models/                     # Pydantic models
+└─ artifacts/
+   └─ runs/<run_id>/
+      ├─ summary.json
+      └─ tools/<tool>/
+         ├─ tool_setup.sh
+         └─ claude_result.json
 ```
 
-## 📋 Prerequisites
+---
 
-- Python 3.8+
+### ✅ Requirements
+- Python 3.9+
 - Docker installed and running
-- Google Cloud service account (for Sheets access)
-- Anthropic API key
-- `shellcheck` installed (optional but recommended)
-- GitHub Personal Access Token (optional but recommended for higher rate limits)
+- Git installed (for repo clone fallback)
+- shellcheck installed (recommended)
+- Anthropic API key (env `ANTHROPIC_API_KEY`)
+- Optional GitHub token (env `GITHUB_TOKEN`) for higher API limits
 
-## 🔧 Installation
+---
 
-1. **Clone the repository:**
-```bash
-git clone <repository_url>
-cd tool_code_automation
+### 🔐 Environment
+Create `.env` with:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+# Optional but recommended to avoid GitHub rate limits
+GITHUB_TOKEN=ghp_...
 ```
 
-2. **Create virtual environment:**
-```bash
-python -m venv env
-source env/bin/activate  # On Windows: env\Scripts\activate
-```
+---
 
-3. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-4. **Install shellcheck (recommended):**
-```bash
-# Ubuntu/Debian
-sudo apt-get install shellcheck
-
-# macOS
-brew install shellcheck
-```
-
-## ⚙️ Configuration
-
-### 1. Environment Variables
-
-Create a `.env` file:
-```bash
-ANTHROPIC_API_KEY=your_api_key_here
-
-# Optional but recommended: GitHub token for higher API rate limits
-# Without token: 60 requests/hour | With token: 5,000 requests/hour
-# Create at: https://github.com/settings/tokens (scope: public_repo)
-GITHUB_TOKEN=ghp_your_github_token_here
-```
-
-### 2. Google Sheets Setup
-
-1. Create a Google Cloud service account
-2. Download the credentials JSON file
-3. Share your Google Sheet with the service account email
-4. Note your spreadsheet ID from the URL
-
-### 3. Google Sheets Format
-
-You can use either format:
-
-#### Option A: GitHub Repository Format (Recommended) 🆕
-Simply provide GitHub URLs and let the system figure out the rest:
-- **github_url**: GitHub repository URL (e.g., `https://github.com/pandas-dev/pandas`)
-- **status**: Current status (auto-updated by system)
-
-The system will automatically:
-- Analyze the repository
-- Detect installation methods (pip, npm, binary, Docker, etc.)
-- Find the latest version
-- Generate appropriate installation scripts
-
-#### Option B: Legacy Manual Format
-For specific tools with known installation methods:
-- **Name**: Tool name (required)
-- **Version**: Version to install (required)
-- **ValidateCommand**: Command to validate installation (required)
-- **Description**: Tool description (optional)
-- **PackageManager**: Package manager to use (optional)
-- **RepositoryURL**: Repository URL if applicable (optional)
-- **GPGKeyURL**: GPG key URL for verification (optional)
-- **Status**: Current status (auto-updated by system)
-- **Message**: Status message (auto-updated)
-- **ArtifactPath**: Path to artifacts (auto-updated)
-
-### 4. Configuration File (Optional)
-
-Create `config.json`:
+### ⚙️ Configuration
+`config.json` example:
 ```json
 {
   "google_sheets": {
-    "credentials_path": "path/to/credentials.json",
-    "spreadsheet_id": "your-spreadsheet-id",
-    "sheet_name": "Tools"
+    "credentials_path": "creds/service-account.json",
+    "spreadsheet_id": "YOUR_SHEET_ID",
+    "sheet_name": "Finance"
   },
   "claude": {
     "model": "claude-sonnet-4-5-20250929",
-    "max_tokens": 4096,
+    "max_tokens": 10000,
     "temperature": 0.2,
-    "max_concurrent_jobs": 5
+    "max_concurrent_jobs": 5,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 2.0
   },
   "docker": {
     "base_image": "ubuntu:22.04",
-    "build_timeout": 300,
-    "run_timeout": 600
+    "build_timeout": 1800,
+    "run_timeout": 900,
+    "cleanup_containers": true
   },
-  "artifacts": {
-    "base_path": "artifacts",
-    "keep_failed_attempts": true
+  "artifacts": { "base_path": "artifacts", "keep_failed_attempts": true },
+  "logging": { "level": "INFO", "file_path": "logs/tool_installer.log" },
+  "dry_run": false,
+  "parallel_jobs": 5
+}
+```
+Notes:
+- Timeouts allow long builds (up to 30 minutes)
+- `sheet_name` can be overridden by `--sheet-name` CLI arg (optional)
+
+---
+
+### 🧪 Setup
+```bash
+# Clone and enter
+git clone <repo>
+cd tool_code_automation
+
+# Create & activate venv (named "env")
+python -m venv env
+source env/bin/activate
+
+# Install deps
+pip install -r requirements.txt
+```
+
+---
+
+### 🚀 Run
+- Dry run with mock data (no Sheets, no Docker):
+```bash
+python main.py --mock-sheets --dry-run --log-level INFO --max-concurrent 2
+```
+
+- Real run with Google Sheets:
+```bash
+python main.py --config config.json --max-concurrent 4
+```
+
+- Override sheet name (optional):
+```bash
+python main.py --config config.json --sheet-name "Finance"
+```
+
+- Notes:
+  - On Apple Silicon, Docker builds target `linux/amd64` automatically in Claude’s flow
+  - Build output uses `--progress=plain` for verbose logs
+
+---
+
+### 🧱 Artifacts
+Per run:
+```
+artifacts/runs/<run_id>/
+  summary.json
+  tools/<tool>/
+    tool_setup.sh
+    claude_result.json
+```
+`claude_result.json` includes `complexity_assessment`, e.g.:
+```json
+{
+  "complexity_assessment": {
+    "summary": "Medium complexity. Binary release requiring arch detection and checksum verification.",
+    "score": 5,
+    "key_factors": ["arch-specific", "checksum", "multi-step"],
+    "installation_method": "binary",
+    "prerequisites_count": 3,
+    "requires_compilation": false
   }
 }
 ```
 
-## 🎯 Usage
+---
 
-### Default Method (Claude Built-in Tools) ✨
+### 🤖 What Claude Does (per tool)
+1. Research installation for the specific GitHub URL (prefers official repo docs)
+2. Clone repo if needed for deeper analysis; read README/INSTALL, setup files, etc.
+3. Detect prerequisites; generate an idempotent `tool_setup.sh` with:
+   - check_prerequisites → install_prerequisites → verify_prerequisites
+   - check_existing_installation → install_tool → validate
+4. Lint the script (`shellcheck`, `bash -n`)
+5. Docker test:
+   - Build image from `config/base.Dockerfile`
+   - COPY the script only (no RUN during build)
+   - Run container and execute: `/workspace/tool_setup.sh && <validate_cmd>`
+6. Write artifacts and a complexity assessment
 
-```bash
-# Basic usage with Claude's built-in tools
-python main.py \
-  --google-creds path/to/credentials.json \
-  --spreadsheet-id your-spreadsheet-id
+---
 
-# With configuration file
-python main.py --config config.json
+### 📑 Google Sheets Format (GitHub URLs)
+- Columns: `github_url`, `status`
+- The system:
+  - Filters to `pending` or `failed`
+  - Fetches minimal repo info (name/description/latest release)
+  - Lets Claude decide install method dynamically
+  - Updates status and artifact path on completion
 
-# Dry run mode (skip Docker execution)
-python main.py --config config.json --dry-run
+---
 
-# Mock mode for testing
-python main.py --mock-sheets --dry-run
-```
+### 🛠️ Troubleshooting
+- Docker build takes too long
+  - Timeouts increased to 30 min build / 15 min run via config
+  - Claude uses `--progress=plain` for visibility
+- GitHub API rate‑limited (60/hr)
+  - Set `GITHUB_TOKEN` (5,000/hr)
+- KeyError in summary
+  - Early return path includes `orchestrator_version` and `run_id` (fixed)
+- Script not created for some tools
+  - Artifacts path made absolute; Claude writes to `artifacts/runs/<run_id>/tools/<tool>`
+- Apple Silicon builds
+  - Docker build uses `--platform linux/amd64`
 
-### V1 - Original Orchestrator (Legacy)
+---
 
-```bash
-python main_v1.py \
-  --google-creds path/to/credentials.json \
-  --spreadsheet-id your-spreadsheet-id
-```
+### 📌 Notes
+- Legacy V1/V2 code paths have been removed.
+- Dockerfiles in repo root are optional; current flow builds ephemeral test images from `config/base.Dockerfile`.
 
+---
 
-
-### Advanced Options
-
-```bash
-python main.py \
-  --google-creds credentials.json \
-  --spreadsheet-id your-id \
-  --sheet-name "Production Tools" \
-  --max-concurrent 10 \
-  --artifacts-dir /path/to/artifacts \
-  --log-level DEBUG
-```
-
-## 📁 Project Structure
-
-```
-tool_code_automation/
-├── src/
-│   ├── core/               # Core business logic
-│   │   ├── orchestrator.py # Main orchestration logic
-│   │   ├── orchestrator_v1.py # V1 legacy orchestration
-│   │   ├── claude_tools.py # Tool definitions (archived)
-│   │   ├── script_validator.py # Script validation
-│   │   ├── docker_runner.py # Docker execution
-│   │   └── artifact_manager.py # Artifact storage
-│   ├── integrations/       # External integrations
-│   │   ├── google_sheets.py # Google Sheets client
-│   │   ├── claude_client.py # Claude AI client (V1)
-│   │   └── claude_agent.py # Claude agent with built-in tools
-│   ├── analyzers/          # Repository analyzers 🆕
-│   │   └── github_analyzer.py # GitHub repository analyzer
-│   ├── models/             # Pydantic data models
-│   │   ├── tool.py        # Tool specifications
-│   │   ├── installation.py # Installation results
-│   │   └── claude.py      # Claude responses
-│   └── utils/              # Utilities
-│       └── logging.py     # Logging configuration
-├── config/                 # Configuration files
-│   ├── settings.py        # Settings model
-│   ├── install_standards.md # Installation standards
-│   ├── base.Dockerfile    # Base Docker image
-│   └── acceptance_checklist.yaml # Validation criteria
-├── artifacts/              # Generated artifacts (auto-created)
-│   ├── tools/             # Tool installation scripts
-│   │   ├── terraform/    # terraform/tool_setup.sh
-│   │   ├── kubectl/      # kubectl/tool_setup.sh
-│   │   └── helm/         # helm/tool_setup.sh
-│   ├── runs/              # Run summaries
-│   ├── scripts/           # Other scripts
-│   ├── logs/              # Detailed logs
-│   └── metadata/          # Metadata files
-├── logs/                   # Application logs (auto-created)
-├── tests/                  # Test suite
-├── scripts/                # Utility scripts
-├── main.py                # Main entry point (built-in tools)
-├── main_v1.py            # V1 entry point (legacy)
-├── requirements.txt       # Python dependencies
-├── README.md             # This file
-└── archive/              # Archived V2 implementation
-```
-
-## 🆚 Architecture Comparison
-
-| Feature | Current (Built-in Tools) | V1 (Legacy) |
-|---------|--------------------------|-------------|
-| **Claude's Role** | Full autonomous agent | Script generator only |
-| **Tool Access** | Built-in tools (Write, Bash, Read) | No tools |
-| **Validation** | Claude handles | Orchestrator handles |
-| **Docker Testing** | Claude handles | Orchestrator handles |
-| **Script Generation** | Via Write tool | Via API response |
-| **Architecture** | Truly autonomous | Sequential |
-| **Best For** | Production use | Simple setups or debugging |
-
-## 🔄 Process Flow
-
-### Current Process Flow (Built-in Tools)
-
-1. **Tool Discovery**
-   - Reads tools from Google Sheets
-   - Filters tools with status "pending" or "failed"
-
-2. **Claude Agent Execution (Per Tool)**
-   - Creates directory structure (Bash tool)
-   - Generates installation script (reasoning)
-   - Saves script to disk (Write tool)
-   - Validates with shellcheck (Bash tool)
-   - Builds Docker image (Bash tool)
-   - Tests installation (Bash tool)
-   - Reports results
-
-3. **Status Update**
-   - Updates Google Sheets with results
-   - Saves artifacts and logs
-
-### V1 Process Flow (Legacy)
-
-1. **Tool Discovery** → 2. **Script Generation** → 3. **Validation** → 4. **Docker Testing** → 5. **Artifacts**
-
-Each step handled sequentially by the orchestrator.
-
-## 📊 Script Generation Details
-- Sends context to Claude:
-  - Installation standards
-  - Base Dockerfile
-  - Tool specification
-  - Acceptance checklist
-- Claude generates installation script
-- Validates Claude's self-review
-
-### 3. Validation
-- **Static Analysis:**
-  - Shebang verification
-  - Safety flags check (`set -euo pipefail`)
-  - Bash syntax validation (`bash -n`)
-  - Shellcheck analysis
-  - Idempotency pattern detection
-  - Secret scanning
-
-### 4. Docker Testing
-- Builds Docker image with script
-- Runs installation
-- Executes validation command
-- Captures logs and exit codes
-
-### 5. Artifact Storage
-- Saves generated script
-- Stores metadata and provenance
-- Keeps installation logs
-- Updates status in Google Sheets
-
-## 📊 Output Structure
-
-```
-artifacts/
-├── terraform/
-│   └── 1.6.0/
-│       ├── tool_setup.sh      # Generated script
-│       ├── tool_setup.sh.sha256 # Checksum
-│       ├── metadata.json      # Generation metadata
-│       ├── provenance.json    # Full provenance
-│       ├── result.json        # Installation result
-│       ├── status.txt         # Quick status
-│       └── installation_*.log # Execution logs
-└── summary.json               # Overall run summary
-```
-
-## 🛡️ Security Features
-
-- No secrets in scripts
-- GPG verification for packages
-- Checksum validation
-- Non-root user execution
-- Minimal base images
-- Clean credential handling
-
-## 🔍 Monitoring
-
-### Logs
-- Application logs: `logs/tool_installer.log`
-- Per-tool logs: `artifacts/{tool}/{version}/installation_*.log`
-
-### Status Tracking
-- Real-time updates in Google Sheets
-- Status files in artifact directories
-- Summary JSON after each run
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test
-pytest tests/test_orchestrator.py
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **"Docker not found"**
-   - Ensure Docker is installed and running
-   - Check Docker permissions
-
-2. **"shellcheck not found"**
-   - Install shellcheck or validation will be skipped
-   - Scripts will still be generated
-
-3. **"Google Sheets API error"**
-   - Verify credentials file path
-   - Check service account permissions
-   - Ensure Sheet is shared with service account
-
-4. **"Claude API error"**
-   - Check API key is set
-   - Verify internet connection
-   - Check rate limits
-
-5. **"GitHub API rate limit exceeded"**
-   - Add GitHub token to `.env` file (see Configuration section)
-   - Without token: limited to 60 requests/hour
-   - With token: 5,000 requests/hour
-   - See `docs/github_rate_limits.md` for details
-
-### Debug Mode
-
-Run with debug logging:
-```bash
-python main.py --config config.json --log-level DEBUG
-```
-
-## 📈 Performance
-
-- Concurrent processing (default: 5 jobs)
-- Async I/O for API calls
-- Docker layer caching
-- Configurable timeouts
-- Rate limit handling
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-### Code Style
-- Black for formatting
-- isort for imports
-- Type hints required
-- Docstrings for all public functions
-
-## 📝 License
-
-[Your License Here]
-
-## 🙏 Acknowledgments
-
-- Claude AI by Anthropic
-- Google Sheets API
-- Docker
-- The open source community
+### 📜 License
+Internal project (add license if needed).

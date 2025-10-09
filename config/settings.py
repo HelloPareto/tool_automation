@@ -38,8 +38,8 @@ class ClaudeConfig(BaseModel):
 class DockerConfig(BaseModel):
     """Docker configuration."""
     base_image: str = Field(default="ubuntu:22.04", description="Base Docker image")
-    build_timeout: int = Field(default=300, description="Docker build timeout in seconds")
-    run_timeout: int = Field(default=600, description="Docker run timeout in seconds")
+    build_timeout: int = Field(default=1800, description="Docker build timeout in seconds (30 minutes)")
+    run_timeout: int = Field(default=900, description="Docker run timeout in seconds (15 minutes)")
     cleanup_containers: bool = Field(default=True, description="Clean up containers after run")
     registry: Optional[str] = Field(None, description="Docker registry URL if using private images")
 
