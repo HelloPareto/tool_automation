@@ -78,6 +78,16 @@ def parse_arguments():
         action="store_true",
         help="Use mock Google Sheets client for testing"
     )
+    parser.add_argument(
+        "--compose-validate",
+        action="store_true",
+        help="After per-tool installs, have Claude build and run the composed image to validate multi-tool composition"
+    )
+    parser.add_argument(
+        "--reprocess-all",
+        action="store_true",
+        help="Reprocess all tools regardless of current status"
+    )
     
     parser.add_argument(
         "--artifacts-dir",
@@ -187,8 +197,11 @@ async def main():
             sheets_client=sheets_client,
             artifact_manager=artifact_manager,
             max_concurrent_jobs=settings.claude.max_concurrent_jobs,
-            dry_run=settings.dry_run
+            dry_run=settings.dry_run,
+            reprocess_all=args.reprocess_all
         )
+        # Attach compose validation flag
+        orchestrator.compose_validate = args.compose_validate
         
         # Run orchestration
         logger.info("Starting orchestration with Claude using built-in tools...")

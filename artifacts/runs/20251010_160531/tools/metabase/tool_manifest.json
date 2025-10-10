@@ -1,0 +1,28 @@
+{
+  "name": "metabase",
+  "version": "v0.56.9",
+  "description": "The easy-to-use open source Business Intelligence and Embedded Analytics tool",
+  "prerequisites": {
+    "apt": [
+      "openjdk-11-jre-headless",
+      "curl",
+      "ca-certificates"
+    ],
+    "runtimes": [
+      "java"
+    ],
+    "libs": [],
+    "services": []
+  },
+  "env_exports": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  },
+  "validate_cmd": "metabase --version",
+  "requires_compilation": false,
+  "installation_method": "jar",
+  "download_url": "https://downloads.metabase.com/v0.56.9/metabase.jar",
+  "install_location": "/opt/metabase",
+  "binary_location": "/usr/local/bin/metabase"
+}

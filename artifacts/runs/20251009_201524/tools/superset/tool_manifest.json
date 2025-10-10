@@ -1,0 +1,18 @@
+{
+  "name": "superset",
+  "version": "superset-helm-chart-0.15.1",
+  "description": "Apache Superset Helm chart for Kubernetes deployment",
+  "prerequisites": {
+    "apt": ["curl", "wget", "tar", "git", "ca-certificates", "gnupg2"],
+    "runtimes": [],
+    "libs": [],
+    "services": ["kubernetes"]
+  },
+  "env_exports": {
+    "PATH": ["/usr/local/bin"]
+  },
+  "validate_cmd": "helm version --template='{{.Version}}' && test -f /tmp/superset-0.15.1.tgz",
+  "requires_compilation": false,
+  "installation_method": "helm",
+  "notes": "This installs Helm CLI and packages the Apache Superset Helm chart v0.15.1 from GitHub source. Version 0.15.1 was released on GitHub but never published to the official Helm repository (https://apache.github.io/superset), so the script clones the repository and packages the chart locally. The packaged chart is saved to /tmp/superset-0.15.1.tgz. Requires Kubernetes cluster for actual deployment. The original validate_cmd 'superset --version' is not applicable as this is a Helm chart, not a standalone CLI tool."
+}

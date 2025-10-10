@@ -1,0 +1,70 @@
+{
+  "name": "erpnext",
+  "version": "v15.82.2",
+  "description": "Free and Open Source Enterprise Resource Planning (ERP) built on Frappe Framework",
+  "prerequisites": {
+    "apt": [
+      "software-properties-common",
+      "apt-transport-https",
+      "ca-certificates",
+      "gnupg",
+      "lsb-release",
+      "curl",
+      "wget",
+      "git",
+      "build-essential",
+      "libssl-dev",
+      "libffi-dev",
+      "libmysqlclient-dev",
+      "libcups2-dev",
+      "libldap2-dev",
+      "libsasl2-dev",
+      "libtiff5-dev",
+      "libjpeg8-dev",
+      "libopenjp2-7-dev",
+      "zlib1g-dev",
+      "libfreetype6-dev",
+      "liblcms2-dev",
+      "libwebp-dev",
+      "tcl8.6-dev",
+      "tk8.6-dev",
+      "libharfbuzz-dev",
+      "libfribidi-dev",
+      "libxcb1-dev",
+      "xvfb",
+      "libfontconfig",
+      "supervisor",
+      "nginx",
+      "fontconfig"
+    ],
+    "runtimes": [
+      "python3.11",
+      "node18",
+      "yarn"
+    ],
+    "services": [
+      "redis-server",
+      "mariadb-server"
+    ],
+    "tools": [
+      "wkhtmltopdf",
+      "frappe-bench"
+    ]
+  },
+  "env_exports": {
+    "PATH": [
+      "/home/frappe/.local/bin",
+      "/usr/local/bin"
+    ]
+  },
+  "validate_cmd": "bench version && cd /home/frappe/frappe-bench/apps/erpnext && git describe --tags",
+  "requires_compilation": false,
+  "installation_method": "frappe-bench",
+  "post_install_notes": [
+    "ERPNext is installed at /home/frappe/frappe-bench",
+    "To start ERPNext: su - frappe && cd ~/frappe-bench && bench start",
+    "Access ERPNext at http://localhost:8000",
+    "Default credentials: Administrator / admin",
+    "ERPNext requires MariaDB and Redis services to be running"
+  ]
+}

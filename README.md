@@ -240,3 +240,50 @@ artifacts/runs/<run_id>/
 
 ### 📜 License
 Internal project (add license if needed).
+
+---
+
+### 🔗 Multi‑tool Composition (shared deps + per‑tool installers)
+
+```
+Google Sheet (pending/failed tools)
+   │
+   ▼
+Claude per‑tool runs → tools/<tool>/{tool_setup.sh, tool_manifest.json}
+   │
+   ▼
+Aggregator → shared/shared_manifest.json → shared/shared_setup.sh
+   │
+   ▼
+Composer → compose/{Dockerfile, run_all.sh, tools/...}
+   │
+   ▼
+Docker build image (copy installers only)
+   │
+   ▼
+Docker run container → run_all.sh
+   1) shared_setup.sh (install deduped system deps)
+   2) for each tool: tool_setup.sh --skip-prereqs → validate_cmd
+```
+
+- **shared_setup.sh**: installs deduplicated system prerequisites once (apt packages, runtimes, libs, PATH exports). No background services; no apt cache cleaning.
+- **run_all.sh**: executes the multi‑tool plan inside the container: runs `shared_setup.sh`, then each `tool_setup.sh` with `--skip-prereqs`, then each tool’s `validate_cmd`.
+- **Artifacts** (per run):
+  - `artifacts/runs/<run_id>/shared/{shared_manifest.json, shared_setup.sh}`
+  - `artifacts/runs/<run_id>/compose/{Dockerfile, run_all.sh, tools/...}`
+
+Commands (latest run example):
+```bash
+# Build composed image
+docker build --platform linux/amd64 --progress=plain \
+  -t tools_compose:latest artifacts/runs/<run_id>/compose
+
+# Install+validate all tools inside the container
+docker run --rm -e DEBIAN_FRONTEND=noninteractive \
+  tools_compose:latest bash -lc "/workspace/run_all.sh"
+```
+
+Notes:
+- Tool scripts must support `--skip-prereqs` and avoid `apt-get clean`; services should not start within tool scripts.
+- The composer quotes validation commands safely; Python validations can use `python3 -c "import pkg; print(pkg.__version__)"`.
+- Apple Silicon builds: base workflow builds for `linux/amd64`.

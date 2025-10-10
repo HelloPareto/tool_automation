@@ -166,6 +166,82 @@ class ClaudeInstallationAgent:
         self.logger.info(f"Installation {'succeeded' if result['success'] else 'failed'} for {tool_spec.name}")
         
         return result
+
+    async def validate_composed_image(self, compose_dir: str, run_all_path: str, image_tag: str) -> Dict[str, Any]:
+        """Ask Claude (built-in tools) to build and validate the composed image end-to-end.
+
+        Args:
+            compose_dir: Directory containing Dockerfile, run_all.sh and tools/
+            run_all_path: Full path to run_all.sh (for reference)
+            image_tag: Docker image tag to use for build/run
+
+        Returns:
+            Dict with success flag and basic logs
+        """
+        self.logger.info(f"Claude compose validation starting for {compose_dir} → {image_tag}")
+
+        system_prompt = "You are an expert DevOps engineer. Use Bash to build, test, and SELF-HEAL the provided compose context."
+        options = ClaudeAgentOptions(system_prompt=system_prompt, permission_mode="bypassPermissions")
+
+        prompt = f"""
+Validate multi-tool composition with self-healing:
+
+Context:
+- Compose dir: {compose_dir}
+- Image tag: {image_tag}
+- Entrypoint script: /workspace/run_all.sh (copied by Dockerfile)
+
+Procedure:
+1) Build image:
+   - Bash: cd {compose_dir} && docker build --platform linux/amd64 --progress=plain -t {image_tag} .
+2) Run container:
+   - Bash: docker run --rm -e DEBIAN_FRONTEND=noninteractive {image_tag} bash -lc "/workspace/run_all.sh"
+3) On failure, DIAGNOSE and SELF-HEAL, then REBUILD and RE-RUN (up to 2 retries):
+   a) Parse logs to identify the failing tool and error category (missing shared library, unbound variable, quoting, etc.).
+   b) If missing shared library (e.g., libxslt.so.1):
+      - Edit {compose_dir}/shared_setup.sh to apt-get install the corresponding jammy package and add `ldconfig`.
+      - Also edit artifacts/tools/<tool>/tool_manifest.json to include the apt package.
+      - If the tool installer needs to run `ldconfig`, add it in artifacts/tools/<tool>/tool_setup.sh after apt installs.
+   c) If script error (e.g., "unbound variable"):
+      - Edit artifacts/tools/<tool>/tool_setup.sh to safely initialize variables and add tmp_dir + trap cleanup as needed.
+      - Run shellcheck and bash -n.
+   d) If validation quoting issue:
+      - Regenerate compose/run_all.sh validation line for that tool with correct quoting (`bash -lc '...'` or `"..."`).
+   e) After edits, re-copy updated files into {compose_dir} if needed, rebuild the image and re-run run_all.sh.
+4) Success criteria:
+   - Only report success after printing COMPOSE_VALIDATION_SUCCESS.
+"""
+
+        responses = []
+        success = False
+        tool_calls = 0
+
+        async for message in query(prompt=prompt, options=options):
+            if hasattr(message, 'content'):
+                for block in message.content:
+                    if hasattr(block, 'text'):
+                        text = block.text
+                        responses.append(text)
+                        if "COMPOSE_VALIDATION_SUCCESS" in text:
+                            success = True
+                    elif hasattr(block, 'tool_use'):
+                        tool_calls += 1
+
+        full = "\n".join(responses)
+        if not success:
+            # Heuristic: success if no obvious error words and mentions of completion
+            lowered = full.lower()
+            if ("error" not in lowered and "failed" not in lowered) and ("completed successfully" in lowered or "validation successful" in lowered or "installation completed successfully" in lowered):
+                success = True
+
+        self.logger.info(f"Compose validation {'succeeded' if success else 'failed'} for {image_tag}")
+        return {
+            "success": success,
+            "image_tag": image_tag,
+            "compose_dir": compose_dir,
+            "tool_calls_made": tool_calls,
+            "logs": full[-5000:]  # tail
+        }
     
     def _get_system_prompt(self, dry_run: bool) -> str:
         """Get the system prompt for Claude."""
@@ -270,6 +346,12 @@ STEP-BY-STEP INSTRUCTIONS:
    - Identify build tools if needed (gcc, make, cmake, etc.)
    - Identify system libraries or dependencies
    - List ALL prerequisites before proceeding
+   - Target OS/arch for all apt packages: Ubuntu 22.04 (jammy), amd64
+   - Distinguish clearly between apt-installable system packages vs Python/Node packages:
+     * prerequisites.apt MUST contain valid Debian/Ubuntu package names (e.g., libssl-dev, libpq-dev, libgdal-dev, gdal-bin)
+     * Do NOT place Python-only packages (e.g., cartopy, geopandas, h5py) in prerequisites.apt or prerequisites.libs; install them with pip inside install_tool()
+     * For C/C++ libs, prefer -dev variants that provide headers (e.g., libxml2-dev, libxslt1-dev, zlib1g-dev)
+     * Avoid conceptual names (e.g., GDAL) — map to concrete apt names (e.g., libgdal-dev, gdal-bin)
 
 3. **CHOOSE INSTALLATION APPROACH**:
    - Based on your repository analysis above, select the most appropriate method
@@ -345,10 +427,50 @@ STEP-BY-STEP INSTRUCTIONS:
    - Uses set -euo pipefail for safety
    - Clear logging with timestamps
    - Actionable error messages
+   - MUST support a flag `--skip-prereqs` (or env `RESPECT_SHARED_DEPS=1`) to bypass installing prerequisites when a shared layer already provided them
+   - MUST NOT run `apt-get clean` or remove apt caches; central orchestration manages cleanup to preserve caching across multi-tool installs
+   - MUST NOT start background services; if services are needed, declare them in the manifest (below) but do not start them here
+
+   Self-healing requirements (MANDATORY):
+   - Initialize variables safely under `set -euo pipefail` to avoid unbound variable errors.
+     Example pattern to include at top of script:
+     ```bash
+     set -euo pipefail
+     IFS=$'\n\t'
+     tmp_dir="${{tmp_dir:-$(mktemp -d)}}"
+     trap 'rm -rf "$tmp_dir"' EXIT
+     ```
+   - After install_tool(), perform runtime linkage verification for primary binaries:
+     * Identify the installed binary path(s) (e.g., `command -v <tool>` or known path).
+     * Run `ldd <binary> | grep "not found"` to detect missing shared libraries.
+     * For each missing `.so`, map it to an Ubuntu 22.04 apt package and install it, then run `ldconfig`.
+       Example mappings: libxslt.so.1→libxslt1.1, libpq.so.*→libpq5/libpq-dev, libgdal.so.*→libgdal30/libgdal-dev, libxml2.so.2→libxml2/libxml2-dev, zlib→zlib1g/zlib1g-dev.
+     * Re-run `ldd` to ensure no missing libraries remain.
+     * Update `tool_manifest.json` prerequisites.apt/libs to reflect any added packages.
 
 5. Save the script:
    - Use Write tool to save to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh
    - Verify it was saved correctly with Read tool
+  - ALSO write a manifest describing prerequisites and validation to: {self.artifacts_base_path}/tools/{tool_spec.name}/tool_manifest.json with this JSON schema:
+     ```json
+     {{
+       "name": "{tool_spec.name}",
+       "version": "{tool_spec.version}",
+       "prerequisites": {{
+         "apt": ["curl", "ca-certificates"],
+         "runtimes": ["python", "node", "go", "java", "rust"],
+         "libs": ["libssl-dev"],
+         "services": ["docker", "postgres"]
+       }},
+       "env_exports": {{ "PATH": ["/usr/local/bin"] }},
+       "validate_cmd": "{tool_spec.validate_cmd}",
+       "requires_compilation": false
+     }}
+     ```
+     Strict rules for `prerequisites`:
+     - `apt`: Only Debian/Ubuntu package identifiers valid on Ubuntu 22.04 jammy (amd64). Use concrete names (e.g., libpq-dev) — never conceptual names (e.g., PostgreSQL client).
+     - `libs`: Only system library packages (often lib*-dev). Do NOT include Python libraries; install those with pip within install_tool().
+     - If a dependency does not have an apt package, omit it from `apt`/`libs` and document/install via the appropriate language package manager inside install_tool().
 
 6. Validate the script:
    - Use Bash: shellcheck -x {self.artifacts_base_path}/tools/{tool_spec.name}/tool_setup.sh

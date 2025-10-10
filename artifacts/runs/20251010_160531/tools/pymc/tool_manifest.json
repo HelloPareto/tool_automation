@@ -1,0 +1,26 @@
+{
+  "name": "pymc",
+  "version": "v5.25.1",
+  "prerequisites": {
+    "apt": [
+      "python3",
+      "python3-pip",
+      "python3-venv",
+      "python3-dev",
+      "build-essential",
+      "libopenblas-dev",
+      "liblapack-dev",
+      "gfortran"
+    ],
+    "runtimes": [
+      "python"
+    ],
+    "libs": [],
+    "services": []
+  },
+  "env_exports": {
+    "PATH": []
+  },
+  "validate_cmd": "python3 -c \"import pymc; print(pymc.__version__)\"",
+  "requires_compilation": false
+}

@@ -42,3 +42,10 @@ WORKDIR /workspace
 
 # Default to bash
 CMD ["/bin/bash"]
+RUN mkdir -p /workspace && chmod 755 /workspace
+COPY shared_setup.sh /workspace/shared_setup.sh
+COPY tools/core/tool_setup.sh /workspace/tools/core/tool_setup.sh
+COPY tools/metabase/tool_setup.sh /workspace/tools/metabase/tool_setup.sh
+COPY tools/pymc/tool_setup.sh /workspace/tools/pymc/tool_setup.sh
+COPY run_all.sh /workspace/run_all.sh
+RUN chmod +x /workspace/run_all.sh /workspace/shared_setup.sh || true
