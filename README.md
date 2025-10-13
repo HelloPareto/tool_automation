@@ -32,8 +32,12 @@ Claude Agent (Built‑in Tools)
    5) Docker test:
       - Build image from base.Dockerfile (COPY script only)
       - Run container: execute script, then validate_cmd
-   6) Complexity assessment → claude_result.json
-   7) Save artifacts, update Google Sheet status
+   6) Self‑heal on failures (per‑tool):
+      - Safe initialization under `set -euo pipefail`; avoid unbound variables
+      - Runtime linkage checks with `ldd`; map missing `.so` to Ubuntu packages; install; `ldconfig`; recheck
+      - Fix quoting/validation issues; retry
+   7) Complexity assessment → claude_result.json
+   8) Save artifacts, update Google Sheet status
    ▼
 Artifacts
    - runs/<run_id>/summary.json
@@ -165,6 +169,17 @@ python main.py --config config.json --sheet-name "Finance"
   - On Apple Silicon, Docker builds target `linux/amd64` automatically in Claude’s flow
   - Build output uses `--progress=plain` for verbose logs
 
+#### End‑to‑end with automated multi‑tool validation
+- Full run including composition and Claude‑driven validation with self‑healing:
+```bash
+python main.py --config config.json --log-level INFO --reprocess-all --compose-validate
+```
+Behavior:
+- Per‑tool: Claude analyzes repo, generates `tool_setup.sh` and `tool_manifest.json`, lints, Docker‑tests, and self‑heals common issues (unbound variables, missing `.so` via apt + `ldconfig`, quoting).
+- Shared deps: Aggregator creates `shared/shared_manifest.json` and `shared/shared_setup.sh` (runs `ldconfig` after apt installs).
+- Composition: Composer generates `compose/Dockerfile` and `compose/run_all.sh` (runs `shared_setup.sh` then each `tool_setup.sh --skip-prereqs`, then validations). Quoting handled robustly.
+- Validation: Claude builds the composed image and runs the container; on failure it diagnoses, edits, rebuilds, and retries (up to 2x) until success.
+
 ---
 
 ### 🧱 Artifacts
@@ -175,6 +190,14 @@ artifacts/runs/<run_id>/
   tools/<tool>/
     tool_setup.sh
     claude_result.json
+    tool_manifest.json
+  shared/
+    shared_manifest.json
+    shared_setup.sh
+  compose/
+    Dockerfile
+    run_all.sh
+    tools/...
 ```
 `claude_result.json` includes `complexity_assessment`, e.g.:
 ```json
@@ -203,7 +226,11 @@ artifacts/runs/<run_id>/
    - Build image from `config/base.Dockerfile`
    - COPY the script only (no RUN during build)
    - Run container and execute: `/workspace/tool_setup.sh && <validate_cmd>`
-6. Write artifacts and a complexity assessment
+6. Self‑heal on failures:
+   - Initialize variables safely; add temp dir and trap cleanup
+   - Use `ldd` to find missing libs → apt install correct jammy packages → `ldconfig` → recheck
+   - Fix quoting/validation commands; retry
+7. Write artifacts and a complexity assessment
 
 ---
 
@@ -267,7 +294,7 @@ Docker run container → run_all.sh
 ```
 
 - **shared_setup.sh**: installs deduplicated system prerequisites once (apt packages, runtimes, libs, PATH exports). No background services; no apt cache cleaning.
-- **run_all.sh**: executes the multi‑tool plan inside the container: runs `shared_setup.sh`, then each `tool_setup.sh` with `--skip-prereqs`, then each tool’s `validate_cmd`.
+- **run_all.sh**: executes the multi‑tool plan inside the container: runs `shared_setup.sh`, then each `tool_setup.sh` with `--skip-prereqs`, then each tool’s `validate_cmd`; prints `COMPOSE_VALIDATION_SUCCESS` at the end.
 - **Artifacts** (per run):
   - `artifacts/runs/<run_id>/shared/{shared_manifest.json, shared_setup.sh}`
   - `artifacts/runs/<run_id>/compose/{Dockerfile, run_all.sh, tools/...}`
@@ -287,3 +314,4 @@ Notes:
 - Tool scripts must support `--skip-prereqs` and avoid `apt-get clean`; services should not start within tool scripts.
 - The composer quotes validation commands safely; Python validations can use `python3 -c "import pkg; print(pkg.__version__)"`.
 - Apple Silicon builds: base workflow builds for `linux/amd64`.
+ - `shared_setup.sh` runs `ldconfig` after apt installs to refresh the dynamic linker cache.
