@@ -21,7 +21,7 @@ class MultiToolComposer:
         self.shared_dir = self.run_base_path / "shared"
         self.compose_dir = self.run_base_path / "compose"
         self.compose_dir.mkdir(parents=True, exist_ok=True)
-        self.base_dockerfile_content = base_dockerfile_content or "FROM ubuntu:22.04\nWORKDIR /workspace\n"
+        self.base_dockerfile_content = base_dockerfile_content or "FROM debian:12-slim\nWORKDIR /workspace\n"
 
     def _list_tools(self) -> List[str]:
         names: List[str] = []

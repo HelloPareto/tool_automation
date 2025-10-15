@@ -78,7 +78,8 @@ class SharedDependencyAggregator:
             "python": ["python3", "python3-pip", "python3-venv"],
             "node": ["nodejs", "npm"],
             "go": ["golang"],
-            "java": ["openjdk-11-jre-headless"],
+            # Prefer Debian 12 default JDK runtime
+            "java": ["openjdk-17-jre-headless"],
             "rust": ["rustc", "cargo"],
             "dotnet": ["dotnet-sdk-6.0"],
         }

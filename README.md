@@ -228,7 +228,7 @@ artifacts/runs/<run_id>/
    - Run container and execute: `/workspace/tool_setup.sh && <validate_cmd>`
 6. Self‑heal on failures:
    - Initialize variables safely; add temp dir and trap cleanup
-   - Use `ldd` to find missing libs → apt install correct jammy packages → `ldconfig` → recheck
+   - Use `ldd` to find missing libs → apt install correct packages for the detected base OS → `ldconfig` → recheck
    - Fix quoting/validation commands; retry
 7. Write artifacts and a complexity assessment
 

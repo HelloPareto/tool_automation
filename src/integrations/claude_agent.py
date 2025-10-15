@@ -346,7 +346,7 @@ STEP-BY-STEP INSTRUCTIONS:
    - Identify build tools if needed (gcc, make, cmake, etc.)
    - Identify system libraries or dependencies
    - List ALL prerequisites before proceeding
-   - Target OS/arch for all apt packages: Ubuntu 22.04 (jammy), amd64
+   - Detect base OS/arch from /etc/os-release (e.g., Debian 12/bookworm vs Ubuntu 22.04/jammy), amd64
    - Distinguish clearly between apt-installable system packages vs Python/Node packages:
      * prerequisites.apt MUST contain valid Debian/Ubuntu package names (e.g., libssl-dev, libpq-dev, libgdal-dev, gdal-bin)
      * Do NOT place Python-only packages (e.g., cartopy, geopandas, h5py) in prerequisites.apt or prerequisites.libs; install them with pip inside install_tool()
@@ -375,7 +375,7 @@ STEP-BY-STEP INSTRUCTIONS:
         * Python: `apt-get install -y python3 python3-pip python3-venv`
         * Node.js: `apt-get install -y nodejs npm` or use NodeSource
         * Go: Download and extract to `/usr/local/go`
-        * Java: `apt-get install -y openjdk-11-jre-headless`
+        * Java: `apt-get install -y openjdk-17-jre-headless` on Debian 12; use distro-default JRE on Ubuntu 22.04 if applicable
         * Build tools: `apt-get install -y build-essential`
    
    c) **verify_prerequisites()** - Verify prerequisites work correctly
@@ -443,7 +443,7 @@ STEP-BY-STEP INSTRUCTIONS:
    - After install_tool(), perform runtime linkage verification for primary binaries:
      * Identify the installed binary path(s) (e.g., `command -v <tool>` or known path).
      * Run `ldd <binary> | grep "not found"` to detect missing shared libraries.
-     * For each missing `.so`, map it to an Ubuntu 22.04 apt package and install it, then run `ldconfig`.
+     * For each missing `.so`, map it to a valid apt package for the detected distro (Debian 12 or Ubuntu 22.04) and install it, then run `ldconfig`.
        Example mappings: libxslt.so.1→libxslt1.1, libpq.so.*→libpq5/libpq-dev, libgdal.so.*→libgdal30/libgdal-dev, libxml2.so.2→libxml2/libxml2-dev, zlib→zlib1g/zlib1g-dev.
      * Re-run `ldd` to ensure no missing libraries remain.
      * Update `tool_manifest.json` prerequisites.apt/libs to reflect any added packages.
@@ -468,7 +468,7 @@ STEP-BY-STEP INSTRUCTIONS:
      }}
      ```
      Strict rules for `prerequisites`:
-     - `apt`: Only Debian/Ubuntu package identifiers valid on Ubuntu 22.04 jammy (amd64). Use concrete names (e.g., libpq-dev) — never conceptual names (e.g., PostgreSQL client).
+     - `apt`: Only Debian/Ubuntu package identifiers valid on the detected base (Debian 12 bookworm or Ubuntu 22.04 jammy). Use concrete names (e.g., libpq-dev) — never conceptual names (e.g., PostgreSQL client).
      - `libs`: Only system library packages (often lib*-dev). Do NOT include Python libraries; install those with pip within install_tool().
      - If a dependency does not have an apt package, omit it from `apt`/`libs` and document/install via the appropriate language package manager inside install_tool().
 
