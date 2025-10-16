@@ -1,0 +1,17 @@
+{
+  "name": "octave",
+  "version": "latest",
+  "prerequisites": {
+    "apt": ["snapd", "wget"],
+    "runtimes": [],
+    "libs": [],
+    "services": ["snapd"]
+  },
+  "env_exports": {
+    "PATH": ["/snap/bin"]
+  },
+  "validate_cmd": "octave --version",
+  "requires_compilation": false,
+  "installation_method": "snap",
+  "notes": "Installs GNU Octave via Snap package manager. Snap provides the latest stable version with all dependencies bundled. The tool is installed with --classic confinement for full system access."
+}

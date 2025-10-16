@@ -1,0 +1,25 @@
+{
+  "name": "gnucash",
+  "version": "5.13",
+  "description": "GnuCash Double-Entry Accounting Program",
+  "installation_method": "flatpak",
+  "prerequisites": {
+    "apt": [
+      "flatpak",
+      "ca-certificates",
+      "gnupg"
+    ],
+    "runtimes": [],
+    "libs": [],
+    "services": []
+  },
+  "env_exports": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  },
+  "validate_cmd": "gnucash --version",
+  "requires_compilation": false,
+  "flatpak_id": "org.gnucash.GnuCash",
+  "runtime_notes": "GnuCash is installed as a Flatpak application. The wrapper script at /usr/local/bin/gnucash invokes 'flatpak run org.gnucash.GnuCash'"
+}

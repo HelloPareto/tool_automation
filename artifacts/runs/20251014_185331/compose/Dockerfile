@@ -158,3 +158,9 @@ RUN echo 'XTerm*background: black' >> /etc/X11/app-defaults/XTerm && \
 #############################################################
 # This base image is now ready to be used by tool builders
 #############################################################
+RUN mkdir -p /workspace && chmod 755 /workspace
+COPY shared_setup.sh /workspace/shared_setup.sh
+COPY tools/gnucash/tool_setup.sh /workspace/tools/gnucash/tool_setup.sh
+COPY tools/openemr/tool_setup.sh /workspace/tools/openemr/tool_setup.sh
+COPY run_all.sh /workspace/run_all.sh
+RUN chmod +x /workspace/run_all.sh /workspace/shared_setup.sh || true

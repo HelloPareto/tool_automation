@@ -1,0 +1,53 @@
+{
+  "apt": [
+    "apache2",
+    "ca-certificates",
+    "curl",
+    "default-mysql-client",
+    "flatpak",
+    "git",
+    "gnupg",
+    "libapache2-mod-php8.2",
+    "libcurl4",
+    "libonig5",
+    "libsodium23",
+    "libssl3",
+    "libxml2-dev",
+    "libxslt1.1",
+    "libzip4",
+    "lsb-release",
+    "nodejs",
+    "php8.2",
+    "php8.2-cli",
+    "php8.2-common",
+    "php8.2-curl",
+    "php8.2-gd",
+    "php8.2-intl",
+    "php8.2-ldap",
+    "php8.2-mbstring",
+    "php8.2-mysql",
+    "php8.2-soap",
+    "php8.2-xml",
+    "php8.2-xsl",
+    "php8.2-zip",
+    "software-properties-common",
+    "unzip",
+    "wget"
+  ],
+  "runtimes": [
+    "node",
+    "php"
+  ],
+  "libs": [],
+  "python": [],
+  "unknown": [],
+  "services": [
+    "apache2",
+    "mysql"
+  ],
+  "env": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  }
+}

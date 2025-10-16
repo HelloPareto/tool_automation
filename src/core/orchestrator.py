@@ -13,6 +13,8 @@ from ..integrations.google_sheets import GoogleSheetsClient
 from ..integrations.claude_agent import ClaudeInstallationAgent
 from ..core.artifact_manager import ArtifactManager
 from ..utils.logging import setup_logger
+from .shared_deps import SharedDependencyAggregator
+from .composer import MultiToolComposer
 
 
 class ToolInstallationOrchestrator:
@@ -22,7 +24,8 @@ class ToolInstallationOrchestrator:
                  sheets_client: GoogleSheetsClient,
                  artifact_manager: ArtifactManager,
                  max_concurrent_jobs: int = 5,
-                 dry_run: bool = False):
+                 dry_run: bool = False,
+                 reprocess_all: bool = False):
         """
         Initialize the orchestrator.
         
@@ -38,6 +41,8 @@ class ToolInstallationOrchestrator:
         self.max_concurrent_jobs = max_concurrent_jobs
         self.dry_run = dry_run
         self.run_id = None  # Will be set in run()
+        self.reprocess_all = reprocess_all
+        self.compose_validate: bool = False
         
         # Load standards and configs
         self.install_standards = self._load_file("config/install_standards.md")
@@ -78,8 +83,11 @@ class ToolInstallationOrchestrator:
         tools = self.sheets_client.read_tools()
         self.logger.info(f"Found {len(tools)} tools to process")
         
-        # Filter tools that need processing
-        pending_tools = [t for t in tools if t.status in [ToolStatus.PENDING, ToolStatus.FAILED]]
+        # Filter tools that need processing (or reprocess all if requested)
+        if self.reprocess_all:
+            pending_tools = tools
+        else:
+            pending_tools = [t for t in tools if t.status in [ToolStatus.PENDING, ToolStatus.FAILED]]
         self.logger.info(f"{len(pending_tools)} tools need processing")
         
         if not pending_tools:
@@ -115,6 +123,40 @@ class ToolInstallationOrchestrator:
             "run_id": self.run_id
         }
         
+        # After tools are processed, aggregate shared dependencies if any manifests exist
+        try:
+            aggregator = SharedDependencyAggregator(self.artifact_manager.run_base_path)
+            aggregated, shared_script = aggregator.aggregate_and_write()
+            summary["shared_dependencies"] = aggregated
+            summary["shared_setup_path"] = str(shared_script)
+            self.logger.info(f"Shared dependencies aggregated. Script at {shared_script}")
+        except Exception as e:
+            self.logger.warning(f"Shared dependency aggregation skipped/failed: {e}")
+
+        # Create multi-tool compose artifacts (Dockerfile + run_all.sh)
+        try:
+            composer = MultiToolComposer(self.artifact_manager.run_base_path, self.base_dockerfile)
+            tools, compose_dir, run_all, dockerfile = composer.create_artifacts()
+            summary["compose"] = {
+                "tools": tools,
+                "compose_dir": str(compose_dir),
+                "run_all_path": str(run_all),
+                "dockerfile_path": str(dockerfile)
+            }
+            self.logger.info(f"Compose artifacts created in {compose_dir}")
+            # Optional: have Claude validate multi-tool composition end-to-end
+            if self.compose_validate and not self.dry_run and tools:
+                self.logger.info("Starting Claude-driven multi-tool composition validation...")
+                comp_result = await self.claude_agent.validate_composed_image(
+                    compose_dir=str(compose_dir),
+                    run_all_path=str(run_all),
+                    image_tag=f"compose_{self.run_id}",
+                )
+                summary["compose_validation"] = comp_result
+                self.logger.info(f"Compose validation complete: success={comp_result.get('success')}")
+        except Exception as e:
+            self.logger.warning(f"Compose artifact generation skipped/failed: {e}")
+
         self.logger.info(f"Orchestration complete: {summary}")
         
         # Save summary to the run directory
