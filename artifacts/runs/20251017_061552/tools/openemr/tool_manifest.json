@@ -1,0 +1,36 @@
+{
+  "name": "openemr",
+  "version": "7.0.4",
+  "description": "The most popular open source electronic health records and medical practice management solution (deployed via Docker)",
+  "repository": "https://github.com/openemr/openemr",
+  "docker_hub": "https://hub.docker.com/r/openemr/openemr",
+  "prerequisites": {
+    "apt": [
+      "curl",
+      "ca-certificates",
+      "apt-transport-https",
+      "gnupg",
+      "lsb-release"
+    ],
+    "runtimes": [],
+    "libs": [],
+    "services": [
+      "docker"
+    ]
+  },
+  "env_exports": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  },
+  "validate_cmd": "openemr --version",
+  "requires_compilation": false,
+  "installation_method": "docker",
+  "notes": [
+    "OpenEMR is a web-based application, not a CLI tool",
+    "Installation deploys OpenEMR via official Docker image",
+    "A CLI wrapper script is created at /usr/local/bin/openemr for container management",
+    "Access OpenEMR web interface at http://localhost:80 after running 'openemr start'",
+    "Docker daemon must be running for OpenEMR to function"
+  ]
+}

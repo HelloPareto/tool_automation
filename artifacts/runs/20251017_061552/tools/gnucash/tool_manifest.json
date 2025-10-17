@@ -1,0 +1,42 @@
+{
+  "name": "gnucash",
+  "version": "5.13",
+  "description": "GnuCash Double-Entry Accounting Program",
+  "installation_method": "hybrid",
+  "installation_methods_available": {
+    "flatpak": {
+      "description": "Preferred method for non-container environments",
+      "provides_version": "5.13",
+      "app_id": "org.gnucash.GnuCash",
+      "remote": "flathub"
+    },
+    "apt": {
+      "description": "Fallback for container environments",
+      "provides_version": "5.5",
+      "package": "gnucash",
+      "note": "Debian 12 stable provides GnuCash 5.5, not 5.13"
+    }
+  },
+  "prerequisites": {
+    "apt": [
+      "flatpak"
+    ],
+    "runtimes": [],
+    "libs": [],
+    "services": []
+  },
+  "env_exports": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  },
+  "validate_cmd": "gnucash --version",
+  "requires_compilation": false,
+  "notes": [
+    "Installation method automatically selected based on environment",
+    "Container environments use APT (provides GnuCash 5.5)",
+    "Non-container environments use Flatpak (provides GnuCash 5.13)",
+    "Flatpak method creates a wrapper script at /usr/local/bin/gnucash",
+    "All dependencies are bundled within Flatpak runtime or satisfied by APT"
+  ]
+}

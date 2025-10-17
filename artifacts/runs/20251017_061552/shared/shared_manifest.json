@@ -1,0 +1,22 @@
+{
+  "apt": [
+    "apt-transport-https",
+    "ca-certificates",
+    "curl",
+    "flatpak",
+    "gnupg",
+    "lsb-release"
+  ],
+  "runtimes": [],
+  "libs": [],
+  "python": [],
+  "unknown": [],
+  "services": [
+    "docker"
+  ],
+  "env": {
+    "PATH": [
+      "/usr/local/bin"
+    ]
+  }
+}
